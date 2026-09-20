@@ -52,6 +52,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+        with:
+          # Turns Pages on for the repository on the first run, so publishing
+          # needs no visit to the settings page. The repository is public, so
+          # this serves content that is already public at a URL.
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
