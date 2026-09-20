@@ -2,7 +2,11 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    # The repository started empty, so this branch is currently the default.
+    # Both are listed so the deploy keeps working after a merge to main.
+    branches:
+      - main
+      - claude/ios-siren-controller-simulator-t20ima
   workflow_dispatch:
 
 permissions:
