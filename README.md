@@ -154,8 +154,21 @@ mão — sem dependência de biblioteca de imagem.
 
 ## Publicando
 
-Um push dispara o workflow do GitHub Pages, que roda as duas suítes antes de
-publicar. Em **Settings → Pages**, defina a origem como **GitHub Actions**.
+Um push dispara o workflow, que roda as duas suítes e só então publica no
+GitHub Pages.
+
+**Antes do primeiro deploy funcionar, o Pages precisa ser ligado uma vez:**
+
+> Settings → Pages → Build and deployment → Source → **GitHub Actions**
+
+Sem isso o job de deploy falha com *"Get Pages site failed"*. Dá para o
+workflow ligar sozinho (`enablement: true` na `configure-pages`), mas criar um
+site Pages exige `administration: write` no token do workflow — dar direitos de
+administração do repositório a um workflow para economizar um clique não
+compensa.
+
+Depois de ligado, o endereço é
+`https://<usuário>.github.io/<repositório>/`.
 
 ## Avisos
 
