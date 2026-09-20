@@ -86,15 +86,16 @@ body {
 
 /* ---------------------------- update notice ---------------------------- */
 
-/* Sits above everything, including the lightbar, because it is the one thing
-   on screen that needs a tap to resolve. It only ever appears when a new
-   build arrived while a tone was playing. */
+/* Above the lightbar, the sheets and the guide — everything. It is the one
+   thing on screen that needs a tap to resolve, and it only ever appears when
+   a new build arrived while a tone was playing, so it is never in the way of
+   anything the user was already doing. */
 .update {
   position: fixed;
   left: 50%;
   bottom: calc(14px + var(--safe-b));
   transform: translateX(-50%);
-  z-index: 60;
+  z-index: 120;
   max-width: calc(100vw - 32px);
   padding: 11px 18px;
   border: 1px solid #2f6f4b;
