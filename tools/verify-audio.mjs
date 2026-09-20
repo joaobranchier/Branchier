@@ -19,6 +19,8 @@ import {
 import {
   pulseHarmonics, triangleHarmonics, squareHarmonics, harmonicSum,
 } from '../js/audio/dsp.js';
+import { readFileSync } from 'node:fs';
+import { BUILD } from '../js/build.js';
 
 const SR = 48000;
 
@@ -336,6 +338,39 @@ group('Regressions');
   // A square series has odd harmonics only; the rotor's must not.
   const sq = squareHarmonics(16);
   assert('square series has no even harmonics', sq[2] === 0 && sq[4] === 0);
+}
+
+group('Shipping');
+{
+  // The build number the guide shows and the one the cache is named after are
+  // two constants in two files, and a phone that shows the wrong one is
+  // exactly the kind of doubt this number exists to remove. Whoever bumps one
+  // and forgets the other finds out here rather than on the user's home screen.
+  const sw = readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
+  const m = sw.match(/const BUILD = '([^']+)'/);
+  assert('sw.js declares a build', !!m, m ? m[1] : 'not found');
+  assert('sw.js and js/build.js agree', !!m && m[1] === BUILD,
+    `sw.js ${m ? m[1] : '?'} vs build.js ${BUILD}`);
+
+  // Cache-first was why a published fix could sit unseen on the phone: every
+  // load answered from the cache and only refreshed for next time. The shell
+  // must go to the network first, and it must bypass the HTTP cache doing it,
+  // because Pages serves the HTML with a max-age of its own.
+  assert('the shell is fetched network-first', /freshFirst/.test(sw) && !/Cache first/.test(sw));
+  assert('the network fetch bypasses the HTTP cache', /cache: 'reload'/.test(sw));
+
+  // Every module the app imports has to be in the shell list, or the app is
+  // only partly available offline — and the missing half is silently the
+  // stale half.
+  const listed = new Set([...sw.matchAll(/'\.\/([^']+\.js)'/g)].map((x) => x[1]));
+  const files = [
+    'app.js', 'build.js', 'platform.js',
+    'audio/engine.js', 'audio/voices.js', 'audio/waves.js', 'audio/dsp.js',
+    'audio/render.js', 'audio/tones.js',
+    'ui/strobe.js', 'ui/guide.js', 'ui/diagrams.js', 'ui/sheets.js', 'ui/waveicons.js',
+  ];
+  const missing = files.filter((f) => !listed.has(`js/${f}`));
+  assert('every module is in the offline shell', missing.length === 0, missing.join(', '));
 }
 
 console.log(`\n\x1b[1m${pass}/${pass + fail} checks passed\x1b[0m${fail ? `  \x1b[31m(${fail} failing)\x1b[0m` : ''}\n`);

@@ -430,6 +430,35 @@ console.log('\n--- the guide ---');
   await p.waitForTimeout(300);
 }
 
+console.log('\n--- version and self-update ---');
+{
+  // A build number nobody can see is a build number nobody can trust. This
+  // row is how the answer to "is this the new version?" stops being a guess.
+  await p.locator('#btnInfo').click();
+  await p.waitForTimeout(300);
+  await p.locator('[data-tab="set"]').click();
+  await p.waitForTimeout(350);
+  const txt = await p.locator('.guide__body').innerText();
+  ok('settings show the build number', /SireFlex v\d+/.test(txt),
+    (txt.match(/SireFlex v[\d.]+[^\n]*/) || ['not found'])[0]);
+
+  // The check button must answer something. Without a service worker (this
+  // page is served over plain http from a script) it reloads, so only the
+  // presence and wiring are checked here; the strategy itself is measured in
+  // the node suite.
+  ok('settings offer a manual update check',
+    (await p.locator('#bUpd').count()) === 1);
+
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(250);
+
+  // The notice must never be in the way unless a new build arrived mid-tone.
+  ok('update notice is hidden by default',
+    await p.locator('#update').evaluate((e) => e.hidden));
+  ok('update notice takes no space while hidden',
+    (await p.locator('#update').evaluate((e) => getComputedStyle(e).display)) === 'none');
+}
+
 console.log(`\n\x1b[1m${pass}/${pass + fail} UI checks passed\x1b[0m${fail ? `  \x1b[31m(${fail} failing)\x1b[0m` : ''}`);
 console.log('page errors:', errs.length ? errs.slice(0, 3) : 'none');
 await b.close();

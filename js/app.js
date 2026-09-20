@@ -634,10 +634,70 @@ ctl.engine.onStateChange((state) => {
 
 ctl.render();
 
-/* ---------------------------- offline cache ---------------------------- */
+/* ------------------- offline cache and self-update ------------------- */
 
+/**
+ * Registering the worker is the easy half. The hard half is making sure a
+ * build published five minutes ago is the one the phone actually runs.
+ *
+ * An installed PWA can sit on the home screen for days without ever being
+ * killed, so "it will update next time" is not a plan. Three things happen
+ * here: the registration is re-checked whenever the app comes back to the
+ * foreground; a worker that is ready to take over is told to do so; and when
+ * it does, the page reloads itself — silently if nothing is playing, and
+ * behind a tappable notice if something is, because cutting a siren off
+ * mid-sweep to install an update is rude.
+ */
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => { /* offline is a bonus */ });
+  const sw = navigator.serviceWorker;
+  // On the very first visit there is no controller yet, and the one that
+  // arrives is not replacing anything — reloading for it would be a pointless
+  // flash on the first thing the user ever sees.
+  const hadController = !!sw.controller;
+  let reloading = false;
+
+  const applyUpdate = () => {
+    if (reloading) return;
+    reloading = true;
+    location.reload();
+  };
+
+  const offerUpdate = () => {
+    const bar = document.getElementById('update');
+    if (!bar || !bar.hidden) return;
+    bar.hidden = false;
+    bar.addEventListener('pointerdown', applyUpdate, { once: true });
+  };
+
+  sw.addEventListener('controllerchange', () => {
+    if (!hadController) return;
+    // Nothing audible: just swap. The user sees a blink, and the version they
+    // reopen is the current one.
+    if (ctl.isSounding) offerUpdate();
+    else applyUpdate();
+  });
+
+  window.addEventListener('load', async () => {
+    const reg = await sw.register('sw.js').catch(() => null);
+    if (!reg) return; // offline caching is a bonus, never a requirement
+
+    // A worker that installed while the app was open waits for every tab to
+    // close before it activates. Nobody closes a home-screen app, so ask.
+    const promote = () => reg.waiting?.postMessage('skipWaiting');
+    promote();
+    reg.addEventListener('updatefound', () => {
+      reg.installing?.addEventListener('statechange', function () {
+        if (this.state === 'installed') promote();
+      });
+    });
+
+    // Coming back to the app is the natural moment to look for a new build:
+    // it is the moment the user is most likely to be wondering why the fix
+    // they were promised is not there yet.
+    const check = () => { if (navigator.onLine !== false) reg.update().catch(() => {}); };
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') check();
+    });
+    window.addEventListener('online', check);
   });
 }

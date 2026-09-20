@@ -7,11 +7,6 @@ on:
     branches:
       - main
       - claude/ios-siren-controller-simulator-t20ima
-  # Pages has to be switched on by hand once (see the deploy job below for why
-  # that cannot be automated). This daily run means that whenever that happens,
-  # the site publishes itself within a day without anyone pushing again.
-  schedule:
-    - cron: '17 6 * * *'
   workflow_dispatch:
 
 permissions:
@@ -47,6 +42,10 @@ jobs:
             sleep 1
           done
           npm run test:ui
+      # Publishing is worth nothing if the phone keeps running the old build,
+      # so that round trip is measured too: install the worker, publish a
+      # change, reopen once, and it has to be the new one.
+      - run: npm run test:sw
 
   deploy:
     needs: verify
@@ -57,54 +56,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Pages must be switched on once for the repository, under
-      # Settings -> Pages -> Build and deployment -> Source: GitHub Actions.
-      #
-      # configure-pages can create the site itself with `enablement: true`,
-      # but that call needs the `administration` scope, and `administration`
-      # is not one of the scopes a workflow may request for GITHUB_TOKEN.
-      # Asking for it makes the workflow file invalid and the run dies before
-      # any job starts. Doing it any other way would mean a personal access
-      # token with admin rights sitting in the repository, which is a far
-      # worse thing to own than one visit to a settings page.
-      #
-      # So this step is allowed to fail: the tests above are the real gate,
-      # and a red cross every day on a repository whose owner is waiting to
-      # flip one switch is noise, not information. The summary below says
-      # plainly what happened either way.
       - id: pages
         uses: actions/configure-pages@v5
-        continue-on-error: true
-
-      - name: Report that Pages is not switched on yet
-        if: steps.pages.outcome != 'success'
-        run: |
-          {
-            echo "### Publicação pendente"
-            echo
-            echo "Os testes passaram, mas o GitHub Pages ainda não está ligado"
-            echo "para este repositório, então não há onde publicar."
-            echo
-            echo "Para ligar, uma vez só:"
-            echo
-            echo "**Settings → Pages → Build and deployment → Source → GitHub Actions**"
-            echo
-            echo "Depois disso não é preciso fazer mais nada: este workflow roda"
-            echo "de novo todo dia e publica sozinho assim que encontrar o Pages"
-            echo "ligado."
-          } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-pages-artifact@v3
-        if: steps.pages.outcome == 'success'
         with:
           path: .
 
       - id: deployment
-        if: steps.pages.outcome == 'success'
         uses: actions/deploy-pages@v4
 
       - name: Report the published address
-        if: steps.deployment.outcome == 'success'
         run: |
           {
             echo "### Publicado"

@@ -8,6 +8,7 @@
     "start": "python3 -m http.server 8099",
     "test": "node tools/verify-audio.mjs",
     "test:ui": "node tools/verify-ui.mjs",
+    "test:sw": "node tools/verify-update.mjs",
     "icons": "python3 tools/make-icons.py"
   },
   "devDependencies": {

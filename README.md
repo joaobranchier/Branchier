@@ -80,6 +80,16 @@ do Safari, e a partir daí não precisa mais de internet.
 > **Instale antes de usar para valer.** Fora do modo tela cheia o iOS é bem mais
 > agressivo em bloquear a tela e suspender o áudio.
 
+### Atualizações
+
+Não há nada para fazer. Ao reabrir o app, ele procura uma versão nova e, se
+houver, troca sozinho — se nada estiver tocando a troca é silenciosa; se
+estiver, aparece um aviso para tocar quando você quiser, porque cortar uma
+sirene no meio da varredura para instalar atualização seria falta de educação.
+
+Em **Ajustes**, no fim da página, fica o número da versão que está rodando e um
+botão **Verificar**, para o caso de você querer a resposta agora.
+
 ## Os botões
 
 | Botão | O que faz |
@@ -87,7 +97,7 @@ do Safari, e a partir daí não precisa mais de internet.
 | **WAIL-1 / WAIL-2 / YELP / HI-LO / PHSR / WA.WA** | Travam um tom. Toque de novo para desligar. |
 | **AIR HORN** | Momentâneo — só soa enquanto o dedo está em cima. |
 | **MANUAL** | Momentâneo. Segure para subir o tom; solte e ele desce sozinho. |
-| **Q-SIREN** | A eletromecânica: sobe devagar e desce em roda-livre por ~19 s. |
+| **Q-SIREN** | A eletromecânica: sobe em ~2,6 s e desce em roda-livre por ~30 s. |
 | **RUMBLE** | Acrescenta a camada grave por baixo do que estiver tocando. |
 | **HIGH / BASS** | Equalização. HIGH corta e alcança longe; BASS dá corpo. Podem ser combinados. |
 | **MOD** | Altera a velocidade de varredura do tom ativo: SLOW / STD / FAST. |
@@ -161,11 +171,12 @@ Precisa ser servido por HTTP — módulos ES não carregam via `file://`.
 
 ## Testes
 
-São duas suítes.
+São três suítes.
 
 **`npm test`** — o projeto inteiro é uma afirmação sobre frequências, e
-afirmação sobre frequência se mede. Renderiza cada voz em um
-`OfflineAudioContext` e confere o resultado contra os números da tabela acima:
+afirmação sobre frequência se mede. Como as vozes são aritmética pura sobre um
+`Float32Array`, elas são renderizadas aqui mesmo, sem navegador, e o resultado
+é conferido contra os números da tabela acima:
 a taxa de varredura pelo rastro do centroide espectral, a altura por *harmonic
 product spectrum* (o 2º harmônico de uma sirene fica só ~2 dB abaixo da
 fundamental, então um detector de "bin mais alto" troca de oitava no meio da
@@ -176,7 +187,7 @@ inclusive empilhando sirene + rumble + air horn no volume máximo.
 (precisa do `npm start` rodando). Cada verificação aqui corresponde a um defeito
 que ler o código não pegou:
 
-- o STOP deixava a Q-siren descendo por 19 segundos, porque chamava o release
+- o STOP deixava a Q-siren descendo por dezenas de segundos, porque chamava o release
   normal em vez de matar a voz;
 - o RUMBLE lia `.lo`/`.hi` direto do tom ativo, e as especificações mecânica e
   de buzina não têm esse par — chegava ao oscilador como NaN e lançava exceção;
@@ -193,9 +204,17 @@ que ler o código não pegou:
   o mostrador mentia e desligar a sirene antes do regime derrubava o tom de
   uma vez.
 
+**`npm run test:sw`** — publica uma versão nova contra uma cópia do site e
+confere que ela chega. Este é o teste de um defeito que a pessoa do outro lado
+sentiu antes de qualquer um de nós: o cache respondia primeiro e a correção
+publicada ficava invisível no telefone. Ele instala o service worker, reescreve
+os arquivos, reabre **uma** vez — tem de estar na versão nova — e depois corta a
+rede, porque a correção não pode ter custado o funcionamento offline.
+
 ```
-57/57 checks passed     (áudio)
-63/63 UI checks passed  (navegador)
+62/62 checks passed      (áudio)
+67/67 UI checks passed   (navegador)
+6/6 update checks passed (publicação)
 ```
 
 Os ícones são gerados por `python3 tools/make-icons.py`, que escreve os PNGs à

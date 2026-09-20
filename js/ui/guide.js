@@ -10,6 +10,7 @@ import { TONES, MOD_STEPS } from '../audio/tones.js';
 import { sweepPlot, profileBars, penetrationChart, rangeChart } from './diagrams.js';
 import { PATTERN_LIST } from './strobe.js';
 import { isIOS, isStandalone } from '../platform.js';
+import { BUILD, BUILD_DATE } from '../build.js';
 
 const el = () => document.getElementById('guide');
 let ctl = null;
@@ -255,7 +256,15 @@ function pageSettings() {
          epilepsia fotossensível deve deixá-los desligados.</p>
     </div>
     <p class="gsmall">Sem anúncios, sem rastreamento, sem rede. Nenhum dado sai do
-       aparelho — os ajustes ficam no armazenamento local do navegador.</p>`;
+       aparelho — os ajustes ficam no armazenamento local do navegador.</p>
+
+    <h3>Versão</h3>
+    <div class="switchrow">
+      <div><span>SireFlex ${BUILD} &middot; ${BUILD_DATE}</span>
+        <small id="oUpd">O app se atualiza sozinho ao ser reaberto. Este botão
+           força a verificação agora.</small></div>
+      <button class="gplay" id="bUpd" type="button"><span class="gplay__txt">Verificar</span></button>
+    </div>`;
 }
 
 const PAGES = { tones: pageTones, keys: pageKeys, how: pageHow, set: pageSettings };
@@ -375,6 +384,47 @@ function wireSettings(root) {
     else if (ctl.isSounding) ctl.screenLock.enable();
   });
   toggle('#tHap', 'haptics', (v) => { ctl.haptics.enabled = v; if (v) ctl.haptics.tap(); });
+
+  root.querySelector('#bUpd').addEventListener('click', checkForUpdate);
+}
+
+/**
+ * Asks the service worker to go and look for a new build right now.
+ *
+ * If it finds one, app.js is already listening: the worker takes over and the
+ * page reloads itself. All this has to do is say what is happening, because
+ * the alternative — a button that looks like it did nothing — is exactly the
+ * doubt this row exists to settle.
+ */
+async function checkForUpdate() {
+  const out = el().querySelector('#oUpd');
+  const btn = el().querySelector('#bUpd');
+  if (!out || !btn) return;
+
+  const say = (msg) => { out.textContent = msg; };
+  btn.disabled = true;
+  say('Procurando…');
+
+  try {
+    if (!('serviceWorker' in navigator)) {
+      location.reload();
+      return;
+    }
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) { location.reload(); return; }
+
+    await reg.update();
+    // update() resolves as soon as the new worker starts installing, so give
+    // it a moment to get far enough to announce itself before declaring
+    // victory or defeat.
+    await new Promise((r) => setTimeout(r, 1200));
+    if (reg.installing || reg.waiting) say('Versão nova encontrada — atualizando…');
+    else say('Você já está na versão mais recente.');
+  } catch {
+    say('Não deu para verificar agora — verifique a conexão.');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 /** The tab bar markup, built once from the tab list. */
