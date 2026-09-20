@@ -188,6 +188,35 @@ console.log('\n--- wake lock is not re-requested per tone change ---');
   await ctx3.close();
 }
 
+console.log('\n--- STOP reaches voices that are still ringing out ---');
+{
+  // A released voice was dropped from the controller's maps at once, so STOP
+  // could not reach it while it rang out — and the level meter read zero
+  // throughout, because it was gated on something being latched.
+  await p.locator('[data-tone="mech"]').click();
+  await p.waitForTimeout(6000);
+  const running = await meter();
+  await p.locator('[data-tone="mech"]').click();   // un-latch: the coast starts
+  await p.waitForTimeout(700);
+  const coasting = await meter();
+  ok('meter shows the coast-down', coasting > 20, `${coasting.toFixed(0)}%`);
+  await p.locator('#keyStop').click();
+  await p.waitForTimeout(800);
+  const afterStop = await meter();
+  ok('STOP silences a coasting Q-siren', afterStop < 2, `${running.toFixed(0)}% -> ${afterStop.toFixed(0)}%`);
+
+  const mbox = await p.locator('#keyManual').boundingBox();
+  await p.mouse.move(mbox.x + mbox.width / 2, mbox.y + mbox.height / 2);
+  await p.mouse.down();
+  await p.waitForTimeout(2000);
+  await p.mouse.up();
+  await p.waitForTimeout(400);
+  ok('manual wail keeps falling after release', (await meter()) > 20);
+  await p.locator('#keyStop').click();
+  await p.waitForTimeout(700);
+  ok('STOP silences a falling manual wail', (await meter()) < 2);
+}
+
 console.log('\n--- keys are operable from a keyboard ---');
 {
   await p.locator('#keyStop').click();

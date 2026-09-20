@@ -32,6 +32,14 @@ class Controller {
     this.active = new Map();
     /** Momentary voices (horn, manual): key -> voice. */
     this.held = new Map();
+    /**
+     * Voices that are no longer latched or held but are still sounding: the
+     * Q-siren coasts for nineteen seconds after its key is switched off, and
+     * the manual wail falls for three. They had been dropped from the maps
+     * the moment the key was released, which left STOP unable to reach them
+     * and let the screen lock while they were still audible.
+     */
+    this.fading = new Set();
 
     this.mix = false;
     this.modStep = 1;
@@ -103,7 +111,7 @@ class Controller {
   stopTone(id) {
     const voice = this.active.get(id);
     if (!voice) return;
-    voice.stop();
+    this._fade(voice, TONES[id]);
     this.active.delete(id);
     this.setKey(`[data-tone="${id}"]`, false);
     this.syncRumble();
@@ -142,7 +150,25 @@ class Controller {
   }
 
   get isSounding() {
-    return this.active.size > 0 || this.held.size > 0 || this.strobe.active;
+    return this.active.size > 0 || this.held.size > 0
+        || this.fading.size > 0 || this.strobe.active;
+  }
+
+  /** How long a voice stays audible after its ordinary release, in seconds. */
+  static tailOf(spec) {
+    if (spec.kind === 'mechanical') return spec.coastDownS;
+    if (spec.kind === 'manual') return spec.fallS;
+    return (spec.releaseMs ?? 40) / 1000;
+  }
+
+  /** Release a voice normally, but keep hold of it while it rings out. */
+  _fade(voice, spec, alreadyFalling = false) {
+    this.fading.add(voice);
+    if (!alreadyFalling) voice.stop();
+    setTimeout(() => {
+      this.fading.delete(voice);
+      this.syncScreenLock();
+    }, (Controller.tailOf(spec) + 0.3) * 1000);
   }
 
   syncScreenLock() {
@@ -175,14 +201,15 @@ class Controller {
   release(key) {
     const voice = this.held.get(key);
     if (!voice) return;
-    // Manual wail coasts down under its own envelope before it is torn down.
+    this.held.delete(key);
+    // The manual wail coasts down under its own envelope before teardown.
     if (typeof voice.fall === 'function') {
       voice.fall();
+      this._fade(voice, TONES.manual, true);
       setTimeout(() => voice.stop(), (TONES.manual.fallS + 0.2) * 1000);
     } else {
-      voice.stop();
+      this._fade(voice, voice.spec);
     }
-    this.held.delete(key);
     this.syncRumble();
     this.syncScreenLock();
   }
@@ -274,6 +301,9 @@ class Controller {
     this.active.clear();
     for (const voice of this.held.values()) voice.kill();
     this.held.clear();
+    // Anything still ringing out from an earlier release.
+    for (const voice of this.fading) voice.kill();
+    this.fading.clear();
     for (const el of document.querySelectorAll('.key--horn.is-down, .key--pill.is-down')) el.classList.remove('is-down');
     this.rumbleVoice?.kill();
     this.rumbleVoice = null;
@@ -348,8 +378,10 @@ class Controller {
       hz.textContent = Number.isFinite(f) && f > 0 ? `${Math.round(f)} Hz` : '';
     }
 
-    const level = (id || this.rumbleVoice) ? this.engine.level() : 0;
-    meter.style.width = `${Math.round(level * 100)}%`;
+    // Read the bus itself rather than inferring from what is latched: a tone
+    // released into a long tail (the Q-siren coasts for nineteen seconds) is
+    // still very much audible, and a meter that reads zero there is lying.
+    meter.style.width = `${Math.round(this.engine.level() * 100)}%`;
     requestAnimationFrame(() => this.render());
   }
 }

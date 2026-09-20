@@ -134,11 +134,19 @@ que ler o código não pegou:
 - a air horn ficava presa para sempre se o primeiro toque terminasse antes de o
   `AudioContext` acabar de ser construído;
 - o wake lock era liberado e repedido a cada troca de tom, reiniciando o
-  temporizador de inatividade do iOS a cada toque.
+  temporizador de inatividade do iOS a cada toque;
+- um tom com cauda longa desligado pela própria tecla saía dos registros na
+  hora, mas continuava soando — então o STOP depois disso não o alcançava, e
+  o medidor de nível marcava zero enquanto a Q-siren ainda descia a todo
+  volume;
+- o modelo de frequência da Q-siren aproximava por uma exponencial só o que
+  o áudio faz em dois segmentos, divergindo por mais de 4× no meio da subida:
+  o mostrador mentia e desligar a sirene antes do regime derrubava o tom de
+  uma vez.
 
 ```
-55/55 checks passed     (áudio)
-23/23 UI checks passed  (navegador)
+58/58 checks passed     (áudio)
+27/27 UI checks passed  (navegador)
 ```
 
 Os ícones são gerados por `python3 tools/make-icons.py`, que escreve os PNGs à

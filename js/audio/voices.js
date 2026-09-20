@@ -81,6 +81,7 @@ class Voice {
     this.startedAt = 0;
     this.rateFactor = 1;
     this.stopped = false;
+    this.killed = false;
   }
 
   _track(node) { this.nodes.push(node); return node; }
@@ -136,7 +137,11 @@ class Voice {
    * ramps far enough to avoid a click.
    */
   kill(when) {
-    if (this.stopped) return;
+    // Deliberately NOT guarded on `stopped`: a voice in its release tail is
+    // exactly what this is for. The Q-siren's tail is nineteen seconds long,
+    // and guarding here made kill() a no-op in the one case that mattered.
+    if (this.killed) return;
+    this.killed = true;
     this.stopped = true;
     const t = when ?? this.ctx.currentTime;
     this.out.gain.cancelScheduledValues(t);
@@ -146,7 +151,7 @@ class Voice {
   }
 
   stop(when) {
-    if (this.stopped) return;
+    if (this.stopped || this.killed) return;
     this.stopped = true;
     const t = when ?? this.ctx.currentTime;
     const rel = (this.spec.releaseMs ?? 40) / 1000;
@@ -315,7 +320,7 @@ export class HornVoice extends Voice {
   }
 
   stop(when) {
-    if (this.stopped) return;
+    if (this.stopped || this.killed) return;
     this.stopped = true;
     const t = when ?? this.ctx.currentTime;
     const rel = this.spec.releaseMs / 1000;
@@ -397,7 +402,7 @@ export class MechanicalVoice extends Voice {
 
   /** Cut power: the coaster clutch lets it freewheel down for many seconds. */
   stop(when) {
-    if (this.stopped) return;
+    if (this.stopped || this.killed) return;
     this.stopped = true;
     const t = when ?? this.ctx.currentTime;
     const s = this.spec;
@@ -431,18 +436,39 @@ export class MechanicalVoice extends Voice {
     this._teardown(t + s.coastDownS + 0.4);
   }
 
+  /**
+   * Mirrors the scheduled ramps exactly rather than approximating them.
+   *
+   * The audio winds up in two exponential segments — a fast one to 72% of
+   * peak, then a slower one to peak — and modelling that as a single
+   * exponential put this reading four times below the real pitch halfway
+   * through the spin-up. That is not just a wrong number on the display:
+   * stop() takes its coast-down starting point from here, so switching the
+   * siren off before it reached speed dropped the pitch off a cliff.
+   */
   frequency(at) {
     const s = this.spec;
-    const el = (at ?? this.ctx.currentTime) - this.phaseStart;
+    const now = at ?? this.ctx.currentTime;
+    const el = now - this.phaseStart;
+    const idle = this._hzFor(60);
     const peak = this._hzFor(s.runRpm);
+    const floor = this._hzFor(40);
+
     if (this.phase === 'up') {
-      const k = Math.min(1, el / s.spinUpS);
-      return this._hzFor(60) * Math.pow(peak / this._hzFor(60), k);
+      const kneeT = s.spinUpS * 0.42;
+      const kneeHz = peak * 0.72;
+      if (el <= 0) return idle;
+      if (el <= kneeT) return idle * Math.pow(kneeHz / idle, el / kneeT);
+      if (el < s.spinUpS) {
+        return kneeHz * Math.pow(peak / kneeHz, (el - kneeT) / (s.spinUpS - kneeT));
+      }
+      return peak;
     }
+
     if (this.phase === 'down') {
-      const k = Math.min(1, el / s.coastDownS);
-      const from = Math.max(1, this.coastFrom ?? peak);
-      return from * Math.pow(this._hzFor(40) / from, k);
+      const from = Math.max(floor, this.coastFrom ?? peak);
+      const k = Math.min(1, Math.max(0, el / s.coastDownS));
+      return from * Math.pow(floor / from, k);
     }
     return 0;
   }

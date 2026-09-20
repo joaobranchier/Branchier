@@ -228,6 +228,31 @@ group('Q-siren follows rotor physics  f = (rpm / 60) x ports');
   assert('Q-siren winds up under power', full > early * 1.4, `${early.toFixed(0)} -> ${full.toFixed(0)} Hz`);
   assert('Q-siren coasts down on the clutch', coasting < full * 0.75, `${full.toFixed(0)} -> ${coasting.toFixed(0)} Hz`);
   assert('Q-siren peak inside published 400-800 Hz', peak >= 400 && peak <= 820, `${peak.toFixed(0)} Hz`);
+
+  // The readout model has to agree with the scheduled ramps: stop() reads
+  // the coast-down's starting pitch out of it, so a model that drifts makes
+  // the siren jump when it is switched off mid-spin-up.
+  {
+    const ctxM = new OfflineAudioContext(1, SR * 12, SR);
+    const engM = new AudioEngine();
+    engM.ctx = ctxM; engM.waves = buildWaves(ctxM); engM.noiseBuffer = makeNoiseBuffer(ctxM);
+    engM._buildChain(); engM.ready = true;
+    const vM = createVoice(engM, TONES.mech);
+    vM.start(0);
+    const dM = (await ctxM.startRendering()).getChannelData(0);
+    let worst = 0, worstAt = 0;
+    // Sampled from 3.5 s on. Before that the rotor is under ~300 Hz, which
+    // the horn-speaker simulation deliberately filters out — so there is no
+    // fundamental left in the output to measure, and any reading there says
+    // more about the detector than about the model.
+    for (const t of [3.5, 5, 6.5, 8, 10]) {
+      const predicted = vM.frequency(t);
+      const measured = pitchHz(dM, Math.floor(SR * t), 16384, SR, { min: 60, max: 1600 });
+      const err = Math.abs(measured - predicted) / predicted * 100;
+      if (err > worst) { worst = err; worstAt = t; }
+    }
+    assert('Q-siren readout tracks its spin-up', worst < 15, `worst ${worst.toFixed(1)}% at t=${worstAt}s`);
+  }
 }
 
 group('Rumbler tracks the active siren inside its 182-400 Hz band');
@@ -343,6 +368,34 @@ group('Regressions');
   const before = rms(4.5), after = rms(5.3), later = rms(7);
   assert('kill() silences the Q-siren at once', after < before * 0.02 && later < 1e-4,
     `${before.toFixed(4)} -> ${after.toFixed(4)} -> ${later.toFixed(4)}`);
+
+  // kill() guarded on `stopped`, which stop() had just set — so it was a
+  // no-op on a voice already coasting, the one case it exists for.
+  //
+  // The audible side of this is checked in verify-ui.mjs, in a real browser:
+  // an OfflineAudioContext cannot reproduce it, because reading .value on an
+  // AudioParam before the render returns the initial value rather than the
+  // automated one, so a stop scheduled ahead does not behave as it does live.
+  // What regressed here was the guard, so the guard is what is asserted.
+  const ctx2 = new OfflineAudioContext(1, SR * 2, SR);
+  const eng2 = new AudioEngine();
+  eng2.ctx = ctx2; eng2.waves = buildWaves(ctx2); eng2.noiseBuffer = makeNoiseBuffer(ctx2);
+  eng2._buildChain(); eng2.ready = true;
+  const q2 = createVoice(eng2, TONES.mech);
+  q2.start(0);
+  q2.stop(0);
+  const stoppedFirst = q2.stopped && !q2.killed;
+  q2.kill(0);
+  assert('kill() still acts on a voice already stopped', stoppedFirst && q2.killed,
+    `stopped=${q2.stopped} killed=${q2.killed}`);
+  // And the reverse order must not let a later stop() undo a kill.
+  const q3 = createVoice(eng2, TONES.mech);
+  q3.start(0);
+  q3.kill(0);
+  const before3 = q3.out.gain.value;
+  q3.stop(0);
+  assert('stop() after kill() is a no-op', q3.out.gain.value === before3,
+    `gain ${before3} -> ${q3.out.gain.value}`);
 
   // A half-written localStorage entry used to reach an AudioParam as NaN,
   // which throws rather than being ignored.
