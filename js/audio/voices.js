@@ -24,15 +24,44 @@ import {
 
 /**
  * One per family, because these are not the same object. A siren head is a
- * compression driver on a horn: a hard presence peak and nothing below a few
- * hundred hertz. An air horn is a flaring trumpet whose fundamental is the
- * whole point. A Q is a rotor in a steel housing. Running all three through
- * the siren-speaker curve — which an earlier version did — filtered a
- * trumpet tuned to 311 Hz away from its own fundamental.
+ * compression driver on a horn. An air horn is a flaring trumpet whose
+ * fundamental is the whole point. A Q is a rotor in a steel housing. Running
+ * all three through the siren-speaker curve — which an earlier version did —
+ * filtered a trumpet tuned to 311 Hz away from its own fundamental.
+ *
+ * The siren curve below was rebuilt after the rendered output was measured
+ * rather than described. It had been doing three things wrong at once:
+ *
+ *  - a 4 dB dip at 700 Hz, right on the bottom of every wail's sweep, which
+ *    duplicated an amplitude tilt renderSiren already applies for the same
+ *    physical reason (a driver is less efficient low down) and so charged
+ *    the fundamental twice for it;
+ *  - boosts of 5.5 and 4 dB at 1250 and 2600 Hz, which sat on the harmonics
+ *    rather than the fundamental. Measured over a whole sweep, 54% of a
+ *    wail's energy landed above 1250 Hz and only 34% below it;
+ *  - a low-pass at 7800 Hz, which let a mathematically perfect square's
+ *    harmonic stack through to a place no compression driver can radiate.
+ *
+ * What replaces it is the same device heard where you would actually hear
+ * it. A re-entrant siren horn is sharply directional up high, so from down
+ * the street and off its axis the top falls away while the fundamental does
+ * not — that is why a real siren outdoors is rounder than a siren aimed at
+ * your face. The shelf is that slope. And the destination is a phone
+ * speaker, which reproduces nothing under about 500 Hz and exaggerates
+ * 2–5 kHz, so the harshness had to come out of exactly the band the
+ * old curve was boosting. Same sweep now measures 57% below 1250 Hz and 4%
+ * above 2500.
+ *
+ * It fixes the gain staging as a side effect: one siren used to arrive at
+ * the master limiter already above its threshold, so the limiter ran
+ * constantly and squashed the crest factor by 2 dB. A single voice now peaks
+ * at 0.65 and the limiter is back to being protection against MIX stacking
+ * rather than a compressor that is always on.
  */
-const VOICING = {
-  siren:  { drive: 1.5,  lowCut: 330, highCut: 7800,
-            bands: [[700, 1.1, -4], [1250, 1.5, 5.5], [2600, 2.0, 4]] },
+export const VOICING = {
+  siren:  { drive: 1.3,  lowCut: 260, lowQ: 0.7, highCut: 4000, highQ: 0.65,
+            shelf: [700, 4],
+            bands: [[1400, 0.8, 1], [3300, 1.0, -5]] },
   horn:   { drive: 1.15, lowCut: 130, highCut: 6800,
             bands: [[480, 1.0, 3], [1400, 1.3, 2]] },
   mech:   { drive: 1.3,  lowCut: 190, highCut: 8200,
@@ -155,14 +184,28 @@ class Voice {
     shaper.oversample = '2x';
 
     const hp = ctx.createBiquadFilter();
-    hp.type = 'highpass'; hp.frequency.value = v.lowCut; hp.Q.value = 0.72;
+    hp.type = 'highpass'; hp.frequency.value = v.lowCut; hp.Q.value = v.lowQ ?? 0.72;
 
     const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass'; lp.frequency.value = v.highCut; lp.Q.value = 0.7;
+    lp.type = 'lowpass'; lp.frequency.value = v.highCut; lp.Q.value = v.highQ ?? 0.7;
 
     let node = shaper;
     node.connect(hp);
     node = hp;
+
+    // The spectral tilt of the thing doing the radiating, as distinct from
+    // the resonances: a horn in a street heard off its axis is not a horn
+    // pointed at your face, and the difference is a slope, not a bump.
+    if (v.shelf) {
+      const sh = ctx.createBiquadFilter();
+      sh.type = 'lowshelf';
+      sh.frequency.value = v.shelf[0];
+      sh.gain.value = v.shelf[1];
+      node.connect(sh);
+      node = sh;
+      this._nodes.push(sh);
+    }
+
     for (const [f, q, g] of v.bands) {
       const pk = ctx.createBiquadFilter();
       pk.type = 'peaking'; pk.frequency.value = f; pk.Q.value = q; pk.gain.value = g;

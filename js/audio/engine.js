@@ -90,6 +90,22 @@ export class AudioEngine {
 
   onStateChange(fn) { this._onStateChange = fn; }
 
+  /**
+   * Builds the chain around a context handed in from outside.
+   *
+   * The point is an OfflineAudioContext: it renders this exact graph — the
+   * radiator, the reflections, the tone stack, the limiter and the ceiling —
+   * to a buffer that can be looked at. Everything downstream of a voice used
+   * to be describable only in prose, and prose is how a master chain ends up
+   * quietly changing the timbre of every tone in the app.
+   */
+  attachContext(ctx) {
+    this.ctx = ctx;
+    this._buildChain();
+    this.ready = true;
+    return ctx;
+  }
+
   _startSilentKeepalive() {
     if (this._silentEl) return;
     const el = document.createElement('audio');

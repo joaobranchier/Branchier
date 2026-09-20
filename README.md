@@ -129,6 +129,13 @@ que os detectores de sirene procuram. Os harmônicos são somados
 explicitamente e descartados ao passar de Nyquist, então a varredura nunca
 dobra nada de volta como nota errada.
 
+**Onde você ouve importa tanto quanto o que toca.** Uma corneta re-entrante
+de sirene é muito direcional no agudo: lá da rua, fora do eixo dela, o topo
+cai e a fundamental não — é por isso que uma sirene de verdade ao ar livre é
+mais redonda que uma sirene apontada para a sua cara. E o destino é o
+alto-falante de um celular, que não reproduz nada abaixo de uns 500 Hz e
+exagera a faixa de 2 a 5 kHz. O radiador das sirenes modela as duas coisas.
+
 **A buzina** são duas trombetas a uma terça menor. O ciclo ativo da palheta
 estreita conforme a pressão sobe, então o tom *abre* durante o ataque em vez
 de só ficar mais alto; e a turbulência é aberta e fechada pela própria
@@ -241,7 +248,7 @@ navegador se acha no direito de reaproveitar a cópia. O CI estava certo.
 
 ```
 63/63 checks passed      (áudio)
-83/83 UI checks passed   (navegador)
+87/87 UI checks passed   (navegador)
 7/7 update checks passed (publicação)
 ```
 

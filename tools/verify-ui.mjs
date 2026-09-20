@@ -619,6 +619,94 @@ console.log('\n--- a tone cannot outlive the finger ---');
   await stopAll();
 }
 
+console.log('\n--- the timbre, measured through the real chain ---');
+{
+  /**
+   * Renders a tone offline through the app's own engine and reports where
+   * its energy is. Everything downstream of a voice used to be describable
+   * only in prose, which is how a master chain quietly changes the timbre of
+   * every tone in the app and nobody notices until someone listens on a
+   * phone.
+   */
+  const balance = (id) => p.evaluate(async (id) => {
+    const [{ AudioEngine }, { createVoice }, { TONES }] = await Promise.all([
+      import('./js/audio/engine.js'),
+      import('./js/audio/voices.js'),
+      import('./js/audio/tones.js'),
+    ]);
+    const SR = 48000;
+    const ctx = new OfflineAudioContext(1, SR * 5, SR);
+    const engine = new AudioEngine();
+    engine.attachContext(ctx);
+    const voice = createVoice(engine, TONES[id], {});
+    voice.start(0);
+    const d = (await ctx.startRendering()).getChannelData(0);
+
+    const N = 4096;
+    const fft = (re, im) => {
+      const n = re.length;
+      for (let i = 1, j = 0; i < n; i++) {
+        let bit = n >> 1;
+        for (; j & bit; bit >>= 1) j ^= bit;
+        j ^= bit;
+        if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; }
+      }
+      for (let L = 2; L <= n; L <<= 1) {
+        const ang = -2 * Math.PI / L, wr = Math.cos(ang), wi = Math.sin(ang);
+        for (let i = 0; i < n; i += L) {
+          let cr = 1, ci = 0;
+          for (let k = 0; k < L / 2; k++) {
+            const ur = re[i + k], ui = im[i + k];
+            const vr = re[i + k + L / 2] * cr - im[i + k + L / 2] * ci;
+            const vi = re[i + k + L / 2] * ci + im[i + k + L / 2] * cr;
+            re[i + k] = ur + vr; im[i + k] = ui + vi;
+            re[i + k + L / 2] = ur - vr; im[i + k + L / 2] = ui - vi;
+            const ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+          }
+        }
+      }
+    };
+
+    const acc = new Float64Array(N >> 1);
+    for (let s = 0; s + N < d.length; s += N >> 1) {
+      const re = new Float64Array(N), im = new Float64Array(N);
+      for (let i = 0; i < N; i++) {
+        re[i] = d[s + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (N - 1)));
+      }
+      fft(re, im);
+      for (let i = 0; i < acc.length; i++) acc[i] += re[i] * re[i] + im[i] * im[i];
+    }
+    const bin = (hz) => Math.round((hz / SR) * N);
+    let total = 0, low = 0, high = 0;
+    for (let i = 0; i < acc.length; i++) total += acc[i];
+    for (let i = 0; i < bin(1250); i++) low += acc[i];
+    for (let i = bin(2500); i < acc.length; i++) high += acc[i];
+    let peak = 0;
+    for (const v of d) { const a = Math.abs(v); if (a > peak) peak = a; }
+    return { low: (low / total) * 100, high: (high / total) * 100, peak };
+  }, id);
+
+  // A wail's fundamental sweeps 725–1800 Hz. The radiator must not tilt the
+  // sound off its own fundamental and onto the harmonic stack above it: the
+  // curve this replaced put 54% of the energy above 1250 Hz and only 34%
+  // below, which reads as thin and wrong on the one speaker this app is
+  // actually played through.
+  const w = await balance('wail1');
+  ok('the wail keeps its weight at the fundamental', w.low > 45,
+    `${w.low.toFixed(0)}% até 1250 Hz`);
+  ok('and is not shrill on a phone speaker', w.high < 8,
+    `${w.high.toFixed(0)}% acima de 2500 Hz`);
+
+  // One voice must not arrive at the master limiter already over its
+  // threshold, or the limiter is a compressor that is always on and the
+  // dynamics of every sweep are squashed flat.
+  ok('one voice leaves headroom for the limiter', w.peak < 0.85,
+    `pico ${w.peak.toFixed(2)}`);
+
+  const h = await balance('hilo');
+  ok('hi-lo keeps its weight too', h.low > 80, `${h.low.toFixed(0)}% até 1250 Hz`);
+}
+
 console.log('\n--- version and self-update ---');
 {
   // A build number nobody can see is a build number nobody can trust. This
