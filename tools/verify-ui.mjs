@@ -692,9 +692,9 @@ console.log('\n--- the timbre, measured through the real chain ---');
   // below, which reads as thin and wrong on the one speaker this app is
   // actually played through.
   const w = await balance('wail1');
-  ok('the wail keeps its weight at the fundamental', w.low > 45,
+  ok('the wail keeps its weight at the fundamental', w.low > 62,
     `${w.low.toFixed(0)}% até 1250 Hz`);
-  ok('and is not shrill on a phone speaker', w.high < 8,
+  ok('and is not shrill on a phone speaker', w.high < 4,
     `${w.high.toFixed(0)}% acima de 2500 Hz`);
 
   // One voice must not arrive at the master limiter already over its
@@ -704,7 +704,7 @@ console.log('\n--- the timbre, measured through the real chain ---');
     `pico ${w.peak.toFixed(2)}`);
 
   const h = await balance('hilo');
-  ok('hi-lo keeps its weight too', h.low > 80, `${h.low.toFixed(0)}% até 1250 Hz`);
+  ok('hi-lo keeps its weight too', h.low > 90, `${h.low.toFixed(0)}% até 1250 Hz`);
 }
 
 console.log('\n--- version and self-update ---');

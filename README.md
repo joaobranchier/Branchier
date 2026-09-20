@@ -134,7 +134,22 @@ de sirene é muito direcional no agudo: lá da rua, fora do eixo dela, o topo
 cai e a fundamental não — é por isso que uma sirene de verdade ao ar livre é
 mais redonda que uma sirene apontada para a sua cara. E o destino é o
 alto-falante de um celular, que não reproduz nada abaixo de uns 500 Hz e
-exagera a faixa de 2 a 5 kHz. O radiador das sirenes modela as duas coisas.
+exagera a faixa de 2 a 5 kHz. O radiador das sirenes modela as duas coisas,
+como uma inclinação que **desce o topo** em vez de levantar o grave: são a
+mesma curva a menos de uma constante, mas realce é ganho, e ganho aqui é
+margem tirada do limitador do master.
+
+### Como julgar o timbre sem se enganar
+
+`npm run preview` escreve um `.wav` por tom. Ele não imita a cadeia de
+áudio: ele **dirige o app de verdade** — a voz de verdade, o radiador de
+verdade, o master de verdade com limitador e teto — dentro de um
+`OfflineAudioContext` num navegador, e grava o que sai.
+
+Isso importa porque a versão anterior desta ferramenta tinha uma cópia
+própria do caminho de sinal, escrita só para gerar os arquivos. Cópia é
+promessa, não prova: os `.wav` soavam ótimos e o app soava errado, e ninguém
+tinha como ver a diferença. O que a medição encontrou está logo abaixo.
 
 **A buzina** são duas trombetas a uma terça menor. O ciclo ativo da palheta
 estreita conforme a pressão sobe, então o tom *abre* durante o ataque em vez
@@ -231,6 +246,12 @@ que ler o código não pegou:
   inteira de uma vez no relógio de áudio, e o teste desliga `setTimeout` e
   `setInterval` durante a soltura, que é o único jeito honesto de verificar
   "não depende de timer".
+
+**`npm run test:ui`** também mede o timbre, e não só o comportamento: renderiza
+um wail pela cadeia inteira e confere onde a energia dele está. A curva que
+esses três números substituíram punha 54% da energia acima de 1250 Hz e 34%
+abaixo — ficava fina e errada no único alto-falante em que este app de fato
+toca.
 
 **`npm run test:sw`** — publica uma versão nova contra uma cópia do site e
 confere que ela chega. Este é o teste de um defeito que a pessoa do outro lado

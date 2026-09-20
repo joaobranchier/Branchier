@@ -52,16 +52,23 @@ import {
  * old curve was boosting. Same sweep now measures 57% below 1250 Hz and 4%
  * above 2500.
  *
+ * How far to tilt it was settled by ear against four candidates rendered
+ * through this exact chain, which is the only instrument that can answer
+ * it — the curve that measures most faithfully and the curve that sounds
+ * like the thing are not the same curve, because a phone at arm's length is
+ * not a hundred-decibel horn on a roof, and the ear's own response is not
+ * the same at those two levels.
+ *
  * It fixes the gain staging as a side effect: one siren used to arrive at
  * the master limiter already above its threshold, so the limiter ran
  * constantly and squashed the crest factor by 2 dB. A single voice now peaks
- * at 0.65 and the limiter is back to being protection against MIX stacking
+ * at 0.72 and the limiter is back to being protection against MIX stacking
  * rather than a compressor that is always on.
  */
 export const VOICING = {
-  siren:  { drive: 1.3,  lowCut: 260, lowQ: 0.7, highCut: 4000, highQ: 0.65,
-            shelf: [700, 4],
-            bands: [[1400, 0.8, 1], [3300, 1.0, -5]] },
+  siren:  { drive: 1.22, lowCut: 200, lowQ: 0.7, highCut: 3000, highQ: 0.6,
+            tilt: [900, -7.5], trim: 1.8,
+            bands: [[2800, 1.0, -6]] },
   horn:   { drive: 1.15, lowCut: 130, highCut: 6800,
             bands: [[480, 1.0, 3], [1400, 1.3, 2]] },
   mech:   { drive: 1.3,  lowCut: 190, highCut: 8200,
@@ -179,6 +186,15 @@ class Voice {
     this.out = ctx.createGain();
     this.out.gain.value = 0;
 
+    /**
+     * How loud this voice ends up. The tone's own gain, times the family's
+     * trim — which exists so that changing a radiator's response does not
+     * silently change how loud that family is, and so the gain staging into
+     * the master limiter can be set deliberately rather than inherited from
+     * whatever the filters happened to do.
+     */
+    this.level = (spec.gain ?? 1) * (v.trim ?? 1);
+
     const shaper = ctx.createWaveShaper();
     shaper.curve = driveCurve(v.drive);
     shaper.oversample = '2x';
@@ -196,11 +212,17 @@ class Voice {
     // The spectral tilt of the thing doing the radiating, as distinct from
     // the resonances: a horn in a street heard off its axis is not a horn
     // pointed at your face, and the difference is a slope, not a bump.
-    if (v.shelf) {
+    //
+    // Written as a shelf that takes the top down rather than one that lifts
+    // the bottom. The two are the same curve to within a constant, but a
+    // boost adds gain, and gain here is headroom taken away from the master
+    // limiter — the tilt would have quietly put the limiter back to work on
+    // every single tone, which is the thing it was just got off.
+    if (v.tilt) {
       const sh = ctx.createBiquadFilter();
-      sh.type = 'lowshelf';
-      sh.frequency.value = v.shelf[0];
-      sh.gain.value = v.shelf[1];
+      sh.type = 'highshelf';
+      sh.frequency.value = v.tilt[0];
+      sh.gain.value = v.tilt[1];
       node.connect(sh);
       node = sh;
       this._nodes.push(sh);
@@ -235,7 +257,7 @@ class Voice {
   }
 
   fadeIn(t, seconds = 0.02) {
-    const g = this.spec.gain ?? 1;
+    const g = this.level;
     this.out.gain.cancelScheduledValues(t);
     this.out.gain.setValueAtTime(0, t);
     this.out.gain.linearRampToValueAtTime(g, t + seconds);
@@ -362,7 +384,7 @@ class HornVoice extends Voice {
     this.startedAt = t;
     this.src.start(t);
     // The buffer carries its own attack, so the gain only needs to arrive.
-    this.out.gain.setValueAtTime(this.spec.gain ?? 1, t);
+    this.out.gain.setValueAtTime(this.level, t);
   }
 
   stop(when) {
@@ -423,8 +445,8 @@ class MechVoice extends Voice {
     this.src.playbackRate.exponentialRampToValueAtTime(1, t + s.spinUpS);
     this.src.start(t);
     this.out.gain.setValueAtTime(0, t);
-    this.out.gain.linearRampToValueAtTime((s.gain ?? 1) * 0.5, t + 0.25);
-    this.out.gain.linearRampToValueAtTime(s.gain ?? 1, t + s.spinUpS * 0.7);
+    this.out.gain.linearRampToValueAtTime(this.level * 0.5, t + 0.25);
+    this.out.gain.linearRampToValueAtTime(this.level, t + s.spinUpS * 0.7);
     this.phase = 'up';
   }
 

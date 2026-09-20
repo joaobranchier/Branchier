@@ -162,17 +162,27 @@ function pageHow() {
        coisas diferentes.</p>
 
     <h3>Como o som é feito aqui</h3>
-    <p class="gcard__body">Não existe um único arquivo de áudio neste app. As sirenes
-       de varredura são um oscilador de baixa frequência modulando <b>dois</b>
-       osciladores portadores afinados com poucos hertz de diferença — é essa diferença
-       que produz o batimento de um par de alto-falantes reais. Depois tudo passa por
-       uma simulação do próprio alto-falante de sirene: corte grave, realce em torno de
-       1,6 kHz e corte agudo, que é a resposta de um driver de compressão com corneta.
-       Sem esse estágio o resultado soa como um sintetizador tocando uma varredura.</p>
-    <p class="gcard__body">A buzina são três trombetas afinadas em acorde, levemente
-       desafinadas entre si, com jato de ar no ataque e queda de pressão ao soltar. A
-       Q-siren segue a física do rotor: <code>f = (rpm ÷ 60) × portas</code>, com 14
-       portas, subida sob carga e descida longa por causa da embreagem de roda-livre.</p>
+    <p class="gcard__body">Não existe um único arquivo de áudio neste app. Cada tom é
+       <b>calculado amostra a amostra</b>, porque as coisas que fazem esses sons serem
+       reconhecíveis não cabem num punhado de osciladores. Uma buzina de ar é uma
+       <b>palheta cortando o fluxo</b>, e o que se ouve como aspereza é ela não repetir
+       exatamente igual a cada período. Uma Q-siren é um <b>rotor cortando ar</b>, e o
+       ruído dela é modulado pelo próprio fluxo que gera o tom — não é chiado por
+       baixo, é o ar sendo picado.</p>
+    <p class="gcard__body">As sirenes de varredura são uma onda quadrada varrida: os
+       harmônicos são somados um a um e descartados ao passar do limite de Nyquist, o
+       que é o motivo de a varredura nunca devolver nota errada. A buzina são
+       <b>duas</b> trombetas a uma terça menor — conjuntos duplos de fábrica são
+       assim, e um acorde maior soaria musical, tipo órgão, não caminhão. A Q-siren
+       segue a física do rotor: <code>f = (rpm ÷ 60) × portas</code>, com 14 portas,
+       e o som irradiado é a <i>derivada</i> do fluxo, o que transforma a área aberta
+       triangular numa onda quadrada assimétrica.</p>
+    <p class="gcard__body">Cada família passa pelo <b>seu</b> radiador, porque uma
+       corneta com driver de compressão, uma trombeta com pavilhão e um rotor em
+       carcaça de aço não são o mesmo objeto. E o radiador das sirenes assume onde
+       você está: uma corneta re-entrante é muito direcional no agudo, então da rua,
+       fora do eixo dela, o topo cai e a fundamental não. É por isso que sirene de
+       verdade ao ar livre é mais redonda do que sirene apontada para a sua cara.</p>
 
     <h3>De onde vêm os números</h3>
     <p class="gsmall">
