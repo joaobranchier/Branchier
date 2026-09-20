@@ -186,6 +186,13 @@ execução falha antes de qualquer job começar. Funcionaria só com um token
 pessoal de administrador guardado no repositório, o que é bem pior do que uma
 visita a uma tela de ajustes.
 
+**Mas é só isso que precisa de você.** O workflow roda também uma vez por dia e
+publica sozinho assim que encontrar o Pages ligado — não é preciso empurrar
+outro commit nem reexecutar nada. E enquanto o Pages estiver desligado ele não
+marca a execução como falha: os testes é que são o portão de verdade, e um X
+vermelho por dia só faria barulho. O resumo da execução diz, em português, o que
+aconteceu.
+
 Depois de ligado, o endereço é
 `https://<usuário>.github.io/<repositório>/`.
 
