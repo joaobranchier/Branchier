@@ -1,9 +1,9 @@
 /**
  * strobe.js — the lightbar.
  *
- * LMB flashes *behind* the faceplate, the way the original app presents it,
+ * LED flashes *behind* the faceplate, the way the original app presents it,
  * so the keys stay reachable while the lights run — being unable to change
- * tone without first killing the lightbar is the wrong trade. LIGHT is the
+ * tone without first killing the lightbar is the wrong trade. LUZ is the
  * one that takes the whole screen, because there it is the point: a torch.
  *
  * Patterns are step tables of [leftOn, rightOn, milliseconds], written to

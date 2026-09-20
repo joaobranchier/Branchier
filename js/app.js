@@ -553,6 +553,9 @@ const ACTIONS = {
   mod:    () => ctl.cycleMod(),
   rumble: () => ctl.toggleRumble(),
   stop:   () => ctl.panic(),
+  // The two keys read LED and LUZ on the panel; the action names are the
+  // lightbar's own and are what every selector in here is keyed on, so they
+  // stay as they are rather than being renamed for a caption.
   lmb:    () => ctl.toggleStrobe('bar', '[data-act="lmb"]'),
   light:  () => ctl.toggleStrobe('white', '[data-act="light"]'),
 };

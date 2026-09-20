@@ -54,7 +54,7 @@ export function openWelcome() {
     <div class="warn">
       <p><strong>Volume e audição.</strong> Ligado a uma caixa de som, esse material
          chega fácil a níveis que machucam. Comece baixo. E os botões
-         <strong>LMB</strong> e <strong>LIGHT</strong> piscam forte — se você tem
+         <strong>LED</strong> e <strong>LUZ</strong> piscam forte — se você tem
          epilepsia fotossensível, deixe-os desligados.</p>
     </div>
 

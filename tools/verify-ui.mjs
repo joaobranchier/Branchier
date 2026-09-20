@@ -316,7 +316,8 @@ console.log('\n--- branding ---');
     const mark = b.querySelector('.brand__mark use');
     const strokes = [...document.querySelectorAll('#i-logo path')].map((x) => x.getAttribute('stroke'));
     return {
-      text: b.innerText.replace(/\s+/g, ''),
+      name: b.querySelector('.brand__name')?.innerText.replace(/\s+/g, ''),
+      model: b.querySelector('.brand__model')?.innerText.replace(/\s+/g, ' ').trim(),
       offset: Math.abs((r.left + r.width / 2) - (rem.left + rem.width / 2)),
       usesMark: mark?.getAttribute('href') === '#i-logo',
       markHidden: b.querySelector('.brand__mark')?.getAttribute('aria-hidden') === 'true',
@@ -324,7 +325,8 @@ console.log('\n--- branding ---');
       title: document.title,
     };
   });
-  ok('the name is on the panel', brand?.text === 'SireFlex', brand?.text);
+  ok('the name is on the panel', brand?.name === 'SireFlex', brand?.name);
+  ok('with the model number under it', brand?.model === 'SF500 PRO', brand?.model);
   ok('it is centred on the unit', brand.offset < 1, `${brand.offset.toFixed(1)}px off`);
   ok('the mark is drawn', brand.usesMark);
   ok('the mark is hidden from screen readers', brand.markHidden,
@@ -364,10 +366,10 @@ console.log('\n--- the lightbar never comes on by itself ---');
   // And it does come on when its own key is pressed.
   await p.locator('#keyLmb').click();
   await p.waitForTimeout(300);
-  ok('lightbar appears when LMB is pressed', !(await read()).hidden);
+  ok('lightbar appears when LED is pressed', !(await read()).hidden);
   await p.locator('#keyLmb').click();
   await p.waitForTimeout(300);
-  ok('lightbar goes away when LMB is pressed again', (await read()).hidden);
+  ok('lightbar goes away when LED is pressed again', (await read()).hidden);
 }
 
 console.log('\n--- the guide ---');
@@ -631,6 +633,24 @@ console.log('\n--- the dock, and the key click ---');
   // moulded into the case edges — a few millimetres of glass with no label.
   // On a phone that is not a control, it is a decoration in front of a door.
   ok('the side nubs are gone', (await p.locator('.nub, .side').count()) === 0);
+
+  // The badge in the middle of the panel, where a manufacturer prints one.
+  const badge = (await p.locator('.brand').innerText()).replace(/\s+/g, ' ').trim();
+  ok('the badge carries the name and the model', badge === 'SireFlex SF500 PRO', badge);
+  const [nameSize, modelSize] = await p.evaluate(() => [
+    parseFloat(getComputedStyle(document.querySelector('.brand__name')).fontSize),
+    parseFloat(getComputedStyle(document.querySelector('.brand__model')).fontSize),
+  ]);
+  ok('the model is set smaller than the name', modelSize < nameSize,
+    `${modelSize.toFixed(1)}px vs ${nameSize.toFixed(1)}px`);
+
+  // The two lightbar keys read in Portuguese on the panel, whatever the
+  // action names underneath them still say.
+  const lightKeys = await p.evaluate(() => [
+    document.querySelector('[data-act="lmb"] .key__lbl').textContent.trim(),
+    document.querySelector('[data-act="light"] .key__lbl').textContent.trim(),
+  ]);
+  ok('the lightbar keys read LED and LUZ', lightKeys.join('/') === 'LED/LUZ', lightKeys.join('/'));
   ok('the dock has its five keys', (await p.locator('.dock__btn').count()) === 5);
   const small = await p.locator('.dock__btn').evaluateAll((els) =>
     els.filter((e) => e.getBoundingClientRect().height < 44).length);

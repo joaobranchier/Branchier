@@ -16,8 +16,9 @@ forma que aparece nos botões de tom — cortada ao meio nas duas cores do
 giroflex. Um desenho que diz as duas metades do nome.
 
 Ela fica no meio do painel, entre as duas teclas redondas — onde vai o
-emblema do fabricante numa central de sirene de verdade — e é o mesmo desenho
-do ícone da tela de início. O ícone é gerado por
+emblema do fabricante numa central de sirene de verdade — com o número do
+modelo, **SF500 PRO**, impresso embaixo do nome, e é o mesmo desenho do
+ícone da tela de início. O ícone é gerado por
 `python3 tools/make-icons.py`, que escreve os PNGs à mão — traçado por campo de
 distância, o que dá pontas e junções arredondadas de graça, e a divisão
 vermelho/azul cai sozinha em qual metade da varredura o pixel está mais perto.
@@ -103,8 +104,8 @@ botão **Verificar**, para o caso de você querer a resposta agora.
 | **MOD** | Altera a velocidade de varredura do tom ativo: SLOW / STD / FAST. |
 | **MIX** | Empilha tons em vez de trocá-los. |
 | **AUTO** | Varre wail → yelp → phaser sozinho. |
-| **LMB** | Giroflex vermelho/azul piscando **atrás** do controle — os botões continuam funcionando. Vem desligado e só acende aqui: nenhuma sirene liga a luz sozinha. |
-| **LIGHT** | Luz branca em tela cheia (serve de lanterna). Toque para sair. |
+| **LED** | Giroflex vermelho/azul piscando **atrás** do controle — os botões continuam funcionando. Vem desligado e só acende aqui: nenhuma sirene liga a luz sozinha. |
+| **LUZ** | Luz branca em tela cheia (serve de lanterna). Toque para sair. |
 | **STOP** | Corta tudo na hora. |
 | Qualquer tecla | Responde com um *clack*. Ele sai por fora das sirenes, então o STOP não engole o próprio clique; dá para desligar em Ajustes. |
 | **Barra inferior** | Volume, liga/desliga, guia e ajustes. Ficavam moldados nas bordas da caixa, como na unidade original — três milímetros de vidro sem rótulo, segurando a única porta para o guia. Controle em que não se acerta não é controle. |
@@ -270,7 +271,7 @@ navegador se acha no direito de reaproveitar a cópia. O CI estava certo.
 
 ```
 63/63 checks passed      (áudio)
-98/98 UI checks passed   (navegador)
+102/102 UI checks passed (navegador)
 7/7 update checks passed (publicação)
 ```
 
@@ -282,7 +283,7 @@ mão — sem dependência de biblioteca de imagem.
 **Volume e audição.** Ligado a uma caixa de som, esse material chega fácil a
 níveis que machucam. Comece baixo.
 
-**Fotossensibilidade.** Os botões LMB e LIGHT piscam forte. Quem tem epilepsia
+**Fotossensibilidade.** Os botões LED e LUZ piscam forte. Quem tem epilepsia
 fotossensível deve deixá-los desligados.
 
 **Uso.** Simulador para uso pessoal, estudo e produção de áudio. Imitar sirene

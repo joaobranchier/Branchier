@@ -106,8 +106,8 @@ const KEYS = [
     ['RUMBLE', 'Camada grave por baixo do que estiver tocando. Não toca sozinha.'],
   ]},
   { group: 'Luzes', items: [
-    ['LMB', 'Liga o giroflex vermelho/azul <b>atrás</b> do controle. Vem desligado e só acende aqui — os botões continuam funcionando com ele ligado.'],
-    ['LIGHT', 'Luz branca em tela cheia, útil como lanterna. Toque em qualquer lugar para sair.'],
+    ['LED', 'Liga o giroflex vermelho/azul <b>atrás</b> do controle. Vem desligado e só acende aqui — os botões continuam funcionando com ele ligado.'],
+    ['LUZ', 'Luz branca em tela cheia, útil como lanterna. Toque em qualquer lugar para sair.'],
   ]},
   { group: 'Controle', items: [
     ['STOP', 'Corta tudo na hora, inclusive um tom que ainda estava descendo.'],
@@ -220,7 +220,7 @@ function pageSettings() {
 
     <h3>Giroflex</h3>
     <p class="gsmall" style="margin:-4px 0 12px">Vem desligado e só acende quando você
-       aperta <b>LMB</b> ou <b>LIGHT</b>. Nenhuma sirene liga a luz sozinha.</p>
+       aperta <b>LED</b> ou <b>LUZ</b>. Nenhuma sirene liga a luz sozinha.</p>
     <div class="field">
       <label for="sPat">Padrão</label>
       <select id="sPat">
@@ -269,7 +269,7 @@ function pageSettings() {
          chega fácil a níveis que machucam. Comece baixo.</p>
     </div>
     <div class="warn">
-      <p><strong>Fotossensibilidade.</strong> LMB e LIGHT piscam forte. Quem tem
+      <p><strong>Fotossensibilidade.</strong> LED e LUZ piscam forte. Quem tem
          epilepsia fotossensível deve deixá-los desligados.</p>
     </div>
     <p class="gsmall">Sem anúncios, sem rastreamento, sem rede. Nenhum dado sai do

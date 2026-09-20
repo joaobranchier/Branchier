@@ -420,7 +420,7 @@ body {
 .strobe__half--r { background: #1440ff; }
 .strobe--white .strobe__half { background: #fff; }
 
-/* LMB: behind the unit, and deaf to touches so the keys keep working. */
+/* LED: behind the unit, and deaf to touches so the keys keep working. */
 .strobe--behind { z-index: 1; pointer-events: none; }
 
 .strobe__exit {
@@ -693,3 +693,18 @@ body.is-locked { overflow: hidden; }
   line-height: 1;
 }
 .brand__name b { font-weight: 800; color: #e6ebe6; letter-spacing: .08em; }
+
+/* The model number, the way a manufacturer prints one under its own name:
+   small, wide-tracked and a shade dimmer, so it reads as part of the badge
+   rather than as a second word competing with it. */
+.brand__model {
+  margin-top: -.15em;
+  font-size: .72em;
+  font-weight: 600;
+  letter-spacing: .26em;
+  /* The tracking is applied to the right of the last letter too, which
+     shifts the whole thing left of centre unless it is given back. */
+  text-indent: .26em;
+  color: #79817d;
+  line-height: 1;
+}
