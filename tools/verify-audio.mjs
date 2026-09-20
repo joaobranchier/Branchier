@@ -397,6 +397,50 @@ group('Regressions');
   assert('stop() after kill() is a no-op', q3.out.gain.value === before3,
     `gain ${before3} -> ${q3.out.gain.value}`);
 
+  // Auditioning a tone in the guide while the faceplate is running used to
+  // play both at once, under a display that can only name one. The panel now
+  // ducks on its own sub-bus, which leaves each voice's envelope alone — the
+  // Q-siren's coast-down is scheduled on exactly the gain a naive mute would
+  // have grabbed.
+  //
+  // Measured by frequency band, not by level: the chain's compressor squashes
+  // the sum of two tones back to roughly the level of one, so comparing RMS
+  // would say almost nothing about whether the second is still audible.
+  // Hi-Lo's two pitches (440/585 Hz) sit clear of Yelp's sweep (725-1800 Hz),
+  // so energy down there is the panel and nothing else.
+  {
+    const renderPair = async (duck) => {
+      const ctx = new OfflineAudioContext(1, SR * 3, SR);
+      const eng = new AudioEngine();
+      eng.ctx = ctx; eng.waves = buildWaves(ctx); eng.noiseBuffer = makeNoiseBuffer(ctx);
+      eng._buildChain(); eng.ready = true;
+      eng.setTone({ bass: true });          // keep the low band in the output
+      createVoice(eng, TONES.hilo).start(0);                       // faceplate
+      createVoice(eng, TONES.yelp, { bus: eng.preview }).start(0);  // guide
+      if (duck) eng.duckPanel(true);
+      return (await ctx.startRendering()).getChannelData(0);
+    };
+
+    const bandEnergy = (data, lo, hi) => {
+      const n = 16384;
+      const mag = magnitudes(data, Math.floor(SR * 1.5), n);
+      let acc = 0;
+      for (let k = Math.round((lo * n) / SR); k <= Math.round((hi * n) / SR); k++) acc += mag[k] ** 2;
+      return Math.sqrt(acc);
+    };
+
+    const open = await renderPair(false);
+    const shut = await renderPair(true);
+    const openLow = bandEnergy(open, 400, 620);
+    const shutLow = bandEnergy(shut, 400, 620);
+    const shutHigh = bandEnergy(shut, 725, 1800);
+
+    assert('the panel is audible when nothing is being auditioned',
+      openLow > shutLow * 6, `${openLow.toFixed(2)} vs ${shutLow.toFixed(2)}`);
+    assert('ducking silences the panel, not the preview',
+      shutHigh > shutLow * 20, `preview ${shutHigh.toFixed(2)} vs panel ${shutLow.toFixed(2)}`);
+  }
+
   // A half-written localStorage entry used to reach an AudioParam as NaN,
   // which throws rather than being ignored.
   let threw = false;

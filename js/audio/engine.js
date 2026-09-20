@@ -120,6 +120,15 @@ export class AudioEngine {
     this.voiceBus = ctx.createGain();
     this.voiceBus.gain.value = 1;
 
+    // Two sub-buses, so the panel can be ducked under a tone being auditioned
+    // in the guide without touching any individual voice's envelope. Reaching
+    // into a voice's own gain would fight the Q-siren's nineteen-second
+    // coast-down, which is scheduled on exactly that parameter.
+    this.panelBus = ctx.createGain();
+    this.previewBus = ctx.createGain();
+    this.panelBus.connect(this.voiceBus);
+    this.previewBus.connect(this.voiceBus);
+
     // --- speaker / horn simulation -----------------------------------
     this.hp = ctx.createBiquadFilter();
     this.hp.type = 'highpass';
@@ -189,8 +198,20 @@ export class AudioEngine {
     this._applyVoicing(0);
   }
 
-  /** Where voices connect. */
-  get bus() { return this.voiceBus; }
+  /** Where a faceplate voice connects. */
+  get bus() { return this.panelBus; }
+
+  /** Where a tone being auditioned in the guide connects. */
+  get preview() { return this.previewBus; }
+
+  /**
+   * Fades the faceplate down while the guide auditions a tone, so two sirens
+   * are never heard at once under a display that can only name one.
+   */
+  duckPanel(on) {
+    if (!this.ready) return;
+    this.panelBus.gain.setTargetAtTime(on ? 0 : 1, this.now, 0.03);
+  }
 
   get now() { return this.ctx ? this.ctx.currentTime : 0; }
 
@@ -251,6 +272,8 @@ export class AudioEngine {
   panic() {
     if (!this.ready) return;
     const t = this.now;
+    this.panelBus.gain.cancelScheduledValues(t);
+    this.panelBus.gain.setValueAtTime(1, t);
     this.voiceBus.gain.cancelScheduledValues(t);
     this.voiceBus.gain.setValueAtTime(this.voiceBus.gain.value, t);
     this.voiceBus.gain.linearRampToValueAtTime(0, t + 0.012);

@@ -70,14 +70,16 @@ function asymTriangleWave(ctx, r, harmonics = 64, samples = 2048) {
 
 /** Base class: owns an output gain and the bookkeeping to tear itself down. */
 class Voice {
-  constructor(engine, spec) {
+  constructor(engine, spec, opts = {}) {
     this.engine = engine;
     this.ctx = engine.ctx;
     this.spec = spec;
     this.nodes = [];
     this.out = this.ctx.createGain();
     this.out.gain.value = 0;
-    this.out.connect(engine.bus);
+    // Defaults to the faceplate's bus; the guide passes the preview bus so
+    // the two can be balanced against each other.
+    this.out.connect(opts.bus ?? engine.bus);
     this.startedAt = 0;
     this.rateFactor = 1;
     this.stopped = false;
@@ -178,8 +180,8 @@ class Voice {
  * ------------------------------------------------------------------ */
 
 export class SweepVoice extends Voice {
-  constructor(engine, spec) {
-    super(engine, spec);
+  constructor(engine, spec, opts) {
+    super(engine, spec, opts);
     const ctx = this.ctx;
     const s = spec;
     const wave = engine.waves[s.wave] || engine.waves.siren;
@@ -275,8 +277,8 @@ export class SweepVoice extends Voice {
  * ------------------------------------------------------------------ */
 
 export class HornVoice extends Voice {
-  constructor(engine, spec) {
-    super(engine, spec);
+  constructor(engine, spec, opts) {
+    super(engine, spec, opts);
     const s = spec;
     const wave = engine.waves[s.wave] || engine.waves.horn;
     this.bells = [];
@@ -346,8 +348,8 @@ export class HornVoice extends Voice {
  * ------------------------------------------------------------------ */
 
 export class MechanicalVoice extends Voice {
-  constructor(engine, spec) {
-    super(engine, spec);
+  constructor(engine, spec, opts) {
+    super(engine, spec, opts);
     const wave = engine.waves[spec.wave] || engine.waves.mech;
     this.carrier = this._osc(wave, 1);
     this.carrierGain = this._gain(0);
@@ -479,8 +481,8 @@ export class MechanicalVoice extends Voice {
  * ------------------------------------------------------------------ */
 
 export class ManualVoice extends Voice {
-  constructor(engine, spec) {
-    super(engine, spec);
+  constructor(engine, spec, opts) {
+    super(engine, spec, opts);
     const wave = engine.waves[spec.wave] || engine.waves.siren;
     this.a = this._osc(wave, spec.lo);
     this.b = this._osc(wave, spec.lo + (spec.detune ?? 0));
@@ -547,8 +549,8 @@ export class RumbleVoice extends Voice {
    * @param source the spec of the siren currently running, so the rumble
    *               tracks it instead of droning at a fixed pitch.
    */
-  constructor(engine, spec, source) {
-    super(engine, spec);
+  constructor(engine, spec, source, opts) {
+    super(engine, spec, opts);
     const wave = engine.waves[spec.wave] || engine.waves.rumble;
     const src = toneRange(source ?? TONES_FALLBACK);
 
@@ -602,13 +604,14 @@ export class RumbleVoice extends Voice {
 
 /** Factory: picks the right class for a tone spec. */
 export function createVoice(engine, spec, context = {}) {
+  const opts = { bus: context.bus };
   switch (spec.kind) {
     case 'sweep':
-    case 'twotone':   return new SweepVoice(engine, spec);
-    case 'horn':      return new HornVoice(engine, spec);
-    case 'mechanical':return new MechanicalVoice(engine, spec);
-    case 'manual':    return new ManualVoice(engine, spec);
-    case 'rumble':    return new RumbleVoice(engine, spec, context.source);
+    case 'twotone':   return new SweepVoice(engine, spec, opts);
+    case 'horn':      return new HornVoice(engine, spec, opts);
+    case 'mechanical':return new MechanicalVoice(engine, spec, opts);
+    case 'manual':    return new ManualVoice(engine, spec, opts);
+    case 'rumble':    return new RumbleVoice(engine, spec, context.source, opts);
     default: throw new Error(`Tipo de voz desconhecido: ${spec.kind}`);
   }
 }

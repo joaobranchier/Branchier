@@ -345,6 +345,31 @@ console.log('\n--- the guide ---');
   ok('preview plays', (await meter()) > 10, `${(await meter()).toFixed(0)}%`);
   ok('preview button shows Parar',
     (await p.locator('[data-play="yelp"]').innerText()).includes('Parar'));
+  // Auditioning over a running faceplate: the display must name what is
+  // actually being heard, and the panel must come back afterwards.
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(400);
+  await p.locator('[data-tone="wail1"]').click();
+  await p.waitForTimeout(500);
+  await p.locator('#btnInfo').click();
+  await p.waitForTimeout(400);
+  await p.locator('[data-play="hilo"]').click();
+  await p.waitForTimeout(700);
+  ok('display names the tone being auditioned',
+    (await p.locator('#lcdTone').innerText()).trim() === 'HI-LO');
+  await p.locator('[data-play="hilo"]').click();
+  await p.waitForTimeout(700);
+  ok('display returns to the panel tone afterwards',
+    (await p.locator('#lcdTone').innerText()).trim().startsWith('WAIL-1'));
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(400);
+  await p.locator('[data-tone="wail1"]').click();
+  await p.waitForTimeout(300);
+  await p.locator('#btnInfo').click();
+  await p.waitForTimeout(400);
+  await p.locator('[data-play="yelp"]').click();
+  await p.waitForTimeout(700);
+
   await p.locator('.guide__close').click();
   await p.waitForTimeout(700);
   ok('closing the guide stops the preview', (await meter()) < 2);

@@ -172,8 +172,8 @@ que ler o código não pegou:
   uma vez.
 
 ```
-58/58 checks passed     (áudio)
-53/53 UI checks passed  (navegador)
+60/60 checks passed     (áudio)
+55/55 UI checks passed  (navegador)
 ```
 
 Os ícones são gerados por `python3 tools/make-icons.py`, que escreve os PNGs à

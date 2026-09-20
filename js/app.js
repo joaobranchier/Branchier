@@ -231,10 +231,16 @@ class Controller {
     if (this.previewId === id) { this.stopPreview(); return false; }
     this.stopPreview();
     const spec = TONES[id];
-    const voice = createVoice(this.engine, spec, { source: TONES.wail1 });
+    const voice = createVoice(this.engine, spec, {
+      source: TONES.wail1,
+      bus: this.engine.preview,
+    });
     voice.start();
     this.previewVoice = voice;
     this.previewId = id;
+    // Fade the faceplate out underneath: two sirens at once, with a display
+    // that can only name one, is just noise.
+    this.engine.duckPanel(true);
     // A horn is a stab, not a state: it stops on its own.
     if (spec.kind === 'horn') {
       this._previewTimer = setTimeout(() => this.stopPreview(), 1500);
@@ -250,6 +256,7 @@ class Controller {
     const spec = TONES[this.previewId];
     this.previewVoice = null;
     this.previewId = null;
+    this.engine.duckPanel(false);
     // Long-tailed tones keep ringing out, so hand them to the same tracker
     // the faceplate uses — STOP has to be able to reach them too.
     this._fade(voice, spec);
