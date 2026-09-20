@@ -208,13 +208,20 @@ que ler o código não pegou:
 confere que ela chega. Este é o teste de um defeito que a pessoa do outro lado
 sentiu antes de qualquer um de nós: o cache respondia primeiro e a correção
 publicada ficava invisível no telefone. Ele instala o service worker, reescreve
-os arquivos, reabre **uma** vez — tem de estar na versão nova — e depois corta a
-rede, porque a correção não pode ter custado o funcionamento offline.
+os arquivos, pergunta ao worker por um deles — tem de vir o novo —, reabre
+**uma** vez e lê o número da versão na tela, e por fim corta a rede, porque a
+correção não pode ter custado o funcionamento offline.
+
+A cópia é servida com `Cache-Control: max-age=600`, o mesmo cabeçalho do GitHub
+Pages, e isso não é detalhe: sem ele o teste mede uma situação mais fácil que a
+real. A primeira versão deste arquivo servia sem cabeçalho nenhum, passava aqui
+e reprovava no CI — onde os tempos calharam de cair dentro da janela em que o
+navegador se acha no direito de reaproveitar a cópia. O CI estava certo.
 
 ```
-62/62 checks passed      (áudio)
+63/63 checks passed      (áudio)
 67/67 UI checks passed   (navegador)
-6/6 update checks passed (publicação)
+7/7 update checks passed (publicação)
 ```
 
 Os ícones são gerados por `python3 tools/make-icons.py`, que escreve os PNGs à

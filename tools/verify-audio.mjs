@@ -359,6 +359,14 @@ group('Shipping');
   assert('the shell is fetched network-first', /freshFirst/.test(sw) && !/Cache first/.test(sw));
   assert('the network fetch bypasses the HTTP cache', /cache: 'reload'/.test(sw));
 
+  // Navigation preload looks like free latency and is a trap here: the
+  // preload request is built by the browser under its own HTTP cache rules,
+  // so it ignores the cache: 'reload' above and will happily hand back the
+  // ten-minute-old page. CI caught exactly that, on timing this machine
+  // happened not to hit. A behavioural test for it races the app's own
+  // self-reload, so it is pinned here instead.
+  assert('navigation preload stays off', !/navigationPreload\.enable/.test(sw));
+
   // Every module the app imports has to be in the shell list, or the app is
   // only partly available offline — and the missing half is silently the
   // stale half.

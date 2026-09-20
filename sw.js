@@ -73,10 +73,15 @@ self.addEventListener('activate', (e) => {
   e.waitUntil((async () => {
     const keys = await caches.keys();
     await Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)));
-    // A pré-carga deixa a navegação começar a buscar em paralelo com a
-    // inicialização do worker, que é justamente o custo do network-first.
+
+    // Nada de navigation preload, por mais tentador que seja o ganho de
+    // latência. A requisição de pré-carga é montada pelo navegador, com as
+    // regras de cache HTTP dele — ou seja, ela ignora o `cache: 'reload'`
+    // abaixo e pode devolver alegremente a página de dez minutos atrás, que é
+    // exatamente o defeito que este service worker existe para não cometer.
+    // Se em algum momento ela tiver ficado ligada, desliga.
     if (self.registration.navigationPreload) {
-      await self.registration.navigationPreload.enable().catch(() => {});
+      await self.registration.navigationPreload.disable().catch(() => {});
     }
     await self.clients.claim();
   })());
@@ -99,14 +104,13 @@ async function putInCache(req, res) {
 }
 
 /** Rede primeiro, com prazo; cache como rede de segurança. */
-async function freshFirst(e) {
-  const req = e.request;
-
+async function freshFirst(req) {
   const fromNet = (async () => {
-    const preload = await e.preloadResponse?.catch(() => null);
-    // cache: 'reload' de novo: o Pages serve o HTML com max-age, e sem isto o
-    // navegador poderia devolver uma cópia de minutos atrás como se fosse nova.
-    const res = preload || await fetch(req.url, { cache: 'reload', credentials: 'same-origin' });
+    // cache: 'reload' não é detalhe: o Pages serve com `max-age=600`, e sem
+    // isto o navegador devolve uma cópia de minutos atrás como se fosse nova
+    // — a versão publicada agora continuaria invisível, só que por um cache
+    // diferente daquele que causou o problema da primeira vez.
+    const res = await fetch(req.url, { cache: 'reload', credentials: 'same-origin' });
     if (res && res.ok) putInCache(req, res.clone());
     return res;
   })();
@@ -145,5 +149,5 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
 
-  e.respondWith(isStatic(url) ? cacheFirst(req) : freshFirst(e));
+  e.respondWith(isStatic(url) ? cacheFirst(req) : freshFirst(req));
 });

@@ -18,10 +18,12 @@
  *   node tools/verify-update.mjs
  */
 
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import {
+  createReadStream, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync,
+} from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { extname, join, normalize } from 'node:path';
 import { chromium } from 'playwright';
 
 const PRESET = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
@@ -43,19 +45,54 @@ for (const f of ['index.html', 'sw.js', 'manifest.webmanifest', 'css', 'js', 'ic
   cpSync(join(ROOT, f), join(dir, f), { recursive: true });
 }
 
-const server = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'],
-  { cwd: dir, stdio: 'ignore' });
+/**
+ * Um servidor próprio, e não `python3 -m http.server`, por um motivo só: o
+ * cabeçalho. O GitHub Pages responde com `Cache-Control: max-age=600`, e é
+ * justamente esse cabeçalho que dá ao navegador permissão para devolver a
+ * página de dez minutos atrás como se fosse nova. Um teste servido sem ele
+ * está medindo uma situação mais fácil do que a real — e foi assim que a
+ * primeira versão deste teste passou aqui e falhou no CI, onde os tempos
+ * calharam de cair dentro da janela em que o navegador se acha no direito de
+ * reaproveitar a cópia.
+ */
+const TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+};
+
+const server = createServer((req, res) => {
+  let rel = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  if (rel.endsWith('/')) rel += 'index.html';
+  const file = normalize(join(dir, rel));
+  if (!file.startsWith(dir)) { res.writeHead(403).end(); return; }
+  let st;
+  try { st = statSync(file); } catch { res.writeHead(404).end('não existe'); return; }
+  res.writeHead(200, {
+    'content-type': TYPES[extname(file)] || 'application/octet-stream',
+    'content-length': st.size,
+    'cache-control': 'max-age=600',
+  });
+  createReadStream(file).pipe(res);
+});
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function waitForServer() {
-  for (let i = 0; i < 40; i++) {
-    try {
-      const r = await fetch(`${BASE}/index.html`);
-      if (r.ok) return;
-    } catch { /* not up yet */ }
-    await sleep(250);
+const waitForServer = () => new Promise((resolve, reject) => {
+  server.listen(PORT, '127.0.0.1', resolve);
+  server.on('error', reject);
+});
+
+/** The first run opens a welcome sheet, which covers the side keys. */
+async function dismissWelcome() {
+  const b = p.locator('.btn[data-close]');
+  if (await b.isVisible().catch(() => false)) {
+    await b.click();
+    await sleep(350);
   }
-  throw new Error('o servidor de teste não subiu');
 }
 
 const edit = (rel, from, to) => {
@@ -87,6 +124,7 @@ try {
   }
   ok('the worker installs and takes control',
     await p.evaluate(() => !!navigator.serviceWorker.controller));
+  await dismissWelcome();
 
   const before = (await p.locator('#hint').innerText()).trim();
 
@@ -95,18 +133,43 @@ try {
   edit('js/build.js', "export const BUILD = 'v6'", "export const BUILD = 'v7'");
   edit('sw.js', "const BUILD = 'v6'", "const BUILD = 'v7'");
 
+  // The strategy, measured on its own, before any reload can paper over it.
+  // The app is open and a build has just gone out; this is the worker being
+  // asked for a file in exactly that state. Cache-first answers v6 here — and
+  // that single answer is the whole defect, upstream of anything the page
+  // does about it afterwards.
+  const served = await p.evaluate(() =>
+    fetch('./js/build.js', { cache: 'no-store' }).then((r) => r.text()).catch(() => 'erro'));
+  const servedBuild = (served.match(/BUILD = '([^']+)'/) || [])[1];
+  ok('the worker serves the published file, not the cached one', servedBuild === 'v7',
+    `o worker devolveu ${servedBuild || '???'}`);
+
   // One reopen. Not two.
+  //
+  // The settling time is not padding: a build this page did not have arrives
+  // while it is loading, the worker takes over, and the app reloads itself on
+  // purpose. Reaching for an element before that lands finds it mid-swap.
   await p.goto(`${BASE}/index.html`, { waitUntil: 'load' });
-  await sleep(1200);
+  await sleep(2500);
+  await p.waitForLoadState('load');
   const after = (await p.locator('#hint').innerText()).trim();
   ok('the new build shows up on the first reopen', after === 'BUILD-NOVA-CHEGOU',
     `${before} -> ${after}`);
 
-  // And the module graph, not only the document: a fresh index.html importing
-  // stale JS is the same bug wearing a different hat.
-  await sleep(800);
-  const build = await p.evaluate(() => import('./js/build.js').then((m) => m.BUILD).catch(() => 'erro'));
-  ok('the modules are fresh too, not just the html', build === 'v7', `build.js diz ${build}`);
+  // And the module graph the page is actually running, not only the document:
+  // a fresh index.html importing stale JS is the same bug wearing a different
+  // hat. This reads the number off the screen, through the app's own code,
+  // rather than importing the file separately — a separate import can be
+  // served fresh while the page keeps running the old one.
+  await dismissWelcome();
+  await p.locator('#btnInfo').click();
+  await p.waitForTimeout(300);
+  await p.locator('[data-tab="set"]').click();
+  await p.waitForTimeout(400);
+  const shown = (await p.locator('.guide__body').innerText()).match(/SireFlex (v[\d.]+)/);
+  ok('the running modules are fresh too, not just the html', shown?.[1] === 'v7',
+    `a tela diz ${shown?.[1] || 'nada'}`);
+  await p.locator('.guide__close').click();
 
   console.log('\n--- and it still works with no network ---');
 
@@ -120,7 +183,7 @@ try {
   ok('no page errors', errs.length === 0, errs.slice(0, 2).join(' | '));
 } finally {
   await b.close();
-  server.kill();
+  server.close();
   rmSync(dir, { recursive: true, force: true });
 }
 
