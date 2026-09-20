@@ -1,0 +1,230 @@
+/**
+ * verify-ui.mjs — drives the real faceplate in a real browser.
+ *
+ * Every check here corresponds to a defect that was found by doing this
+ * rather than by reading the code: the STOP button that left the Q-siren
+ * coasting for nineteen seconds, the RUMBLE layer that threw a non-finite
+ * AudioParam over any tone without a lo/hi pair, the air horn that stuck on
+ * for good if the first tap ended before the AudioContext finished building,
+ * and a wake lock released and re-taken on every single key press.
+ *
+ * Run with:  npm run test:ui     (needs `npm start` serving on 8099, or set
+ *                                 BASE_URL to point somewhere else)
+ */
+
+import { existsSync } from 'node:fs';
+import { chromium } from 'playwright';
+
+const BASE = process.env.BASE_URL || 'http://127.0.0.1:8099';
+const SHOT = process.env.SHOT_DIR || null;
+
+/**
+ * Where to find Chromium. CHROME_PATH wins; otherwise a pre-provisioned
+ * browser is used if one is present, and failing that Playwright falls back
+ * to whatever `playwright install` put in its own cache (undefined means
+ * "you choose"). Hard-coding one path breaks the other environment.
+ */
+const PRESET = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const CHROME = process.env.CHROME_PATH || (existsSync(PRESET) ? PRESET : undefined);
+
+const b = await chromium.launch({
+  executablePath: CHROME,
+  args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required'],
+});
+let pass = 0, fail = 0;
+const ok = (n, c, d = '') => {
+  c ? pass++ : fail++;
+  console.log(`  ${c ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'} ${n.padEnd(46)} ${d}`);
+};
+
+const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+const p = await ctx.newPage();
+const errs = [];
+p.on('pageerror', e => errs.push(e.message));
+p.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
+await p.goto(`${BASE}/index.html`);
+await p.waitForTimeout(600);
+await p.locator('.btn[data-close]').click();
+await p.waitForTimeout(200);
+const meter = () => p.evaluate(() => parseFloat(document.getElementById('meterFill').style.width) || 0);
+
+console.log('\n--- STOP kills the Q-siren immediately ---');
+await p.locator('[data-tone="mech"]').click();
+await p.waitForTimeout(6000);
+const qRun = await meter();
+await p.locator('#keyStop').click();
+await p.waitForTimeout(600);
+const qAfter = await meter();
+await p.waitForTimeout(2500);
+const qLater = await meter();
+ok('Q-siren audible before STOP', qRun > 20, `${qRun.toFixed(0)}%`);
+ok('silent 0.6s after STOP', qAfter < 2, `${qAfter.toFixed(0)}%`);
+ok('still silent 3s after STOP', qLater < 2, `${qLater.toFixed(0)}%`);
+
+console.log('\n--- RUMBLE over every tone, no exceptions ---');
+errs.length = 0;
+await p.locator('#keyRumble').click();
+for (const t of ['mech', 'wail1', 'yelp', 'hilo', 'phaser', 'wawa', 'wail2']) {
+  await p.locator(`[data-tone="${t}"]`).click();
+  await p.waitForTimeout(400);
+  await p.locator(`[data-tone="${t}"]`).click();
+  await p.waitForTimeout(200);
+}
+ok('no page errors with RUMBLE over all tones', errs.length === 0, errs[0] || '');
+await p.locator('#keyRumble').click();
+await p.locator('#keyStop').click();
+
+console.log('\n--- air horn released during the audio unlock ---');
+const ctx2 = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+const p2 = await ctx2.newPage();
+await p2.goto(`${BASE}/index.html`);
+await p2.waitForTimeout(500);
+await p2.locator('.btn[data-close]').click();
+const box = await p2.locator('#keyHorn').boundingBox();
+await p2.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+await p2.mouse.down();
+await p2.waitForTimeout(30);   // a tap shorter than the first AudioContext build
+await p2.mouse.up();
+await p2.waitForTimeout(2500);
+const stuck = await p2.evaluate(() => parseFloat(document.getElementById('meterFill').style.width) || 0);
+ok('horn does not stick on the first quick tap', stuck < 2, `${stuck.toFixed(0)}%`);
+await ctx2.close();
+
+console.log('\n--- lightbar flashes behind the unit, keys stay live ---');
+await p.locator('#keyLmb').click();
+await p.waitForTimeout(400);
+const behind = await p.evaluate(() => {
+  const s = document.getElementById('strobe');
+  return {
+    visible: !s.hidden,
+    pe: getComputedStyle(s).pointerEvents,
+    z: +getComputedStyle(s).zIndex,
+    stageZ: +getComputedStyle(document.querySelector('.stage')).zIndex,
+  };
+});
+ok('lightbar visible', behind.visible);
+ok('lightbar sits behind the stage', behind.z < behind.stageZ, `z ${behind.z} < ${behind.stageZ}`);
+ok('lightbar ignores touches', behind.pe === 'none', behind.pe);
+await p.locator('[data-tone="yelp"]').click();
+await p.waitForTimeout(500);
+ok('tone key still works while lightbar runs', (await p.locator('#lcdTone').textContent()).trim() === 'YELP');
+if (SHOT) await p.screenshot({ path: `${SHOT}/lightbar.png` });
+await p.locator('#keyLmb').click();
+await p.locator('#keyStop').click();
+await p.waitForTimeout(200);
+
+console.log('\n--- power toggles both ways ---');
+await p.locator('[data-tone="wail1"]').click();
+await p.waitForTimeout(400);
+await p.locator('#btnPower').click();
+await p.waitForTimeout(500);
+const off = await p.evaluate(() => ({
+  lcd: document.getElementById('lcdTone').textContent,
+  standby: document.getElementById('remote').classList.contains('is-standby'),
+  m: parseFloat(document.getElementById('meterFill').style.width) || 0,
+}));
+ok('power off -> standby + silence', off.standby && off.lcd === 'STANDBY' && off.m < 2, JSON.stringify(off));
+await p.locator('#btnPower').click();
+await p.waitForTimeout(400);
+ok('power on -> leaves standby',
+  await p.evaluate(() => !document.getElementById('remote').classList.contains('is-standby')));
+
+console.log('\n--- volume readout actually appears ---');
+await p.locator('#btnVolDown').click();
+await p.waitForTimeout(250);
+const vtxt = (await p.locator('#lcdHz').textContent()).trim();
+ok('volume shown on the display', /^VOL \d+%$/.test(vtxt), vtxt);
+await p.waitForTimeout(1500);
+ok('volume readout clears itself', !(await p.locator('#lcdHz').textContent()).includes('VOL'));
+
+console.log('\n--- aria-pressed reflects latch state ---');
+await p.locator('[data-tone="yelp"]').click();
+await p.waitForTimeout(300);
+ok('latched key exposes aria-pressed=true', await p.getAttribute('[data-tone="yelp"]', 'aria-pressed') === 'true');
+await p.locator('[data-tone="yelp"]').click();
+await p.waitForTimeout(300);
+ok('unlatched key exposes aria-pressed=false', await p.getAttribute('[data-tone="yelp"]', 'aria-pressed') === 'false');
+
+console.log('\n--- wake lock is not re-requested per tone change ---');
+{
+  // A fresh context: by this point the shared page has already had a real
+  // request rejected (headless has no display), so ScreenLock is in its
+  // blocked state and would never call a stub installed now — the check
+  // would pass without exercising anything.
+  const ctx3 = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await ctx3.addInitScript(() => {
+    window.__wakeCalls = 0;
+    Object.defineProperty(navigator, 'wakeLock', {
+      configurable: true,
+      value: {
+        request: async () => {
+          window.__wakeCalls++;
+          return { release: async () => {}, addEventListener() {} };
+        },
+      },
+    });
+  });
+  const p3 = await ctx3.newPage();
+  await p3.goto(`${BASE}/index.html`);
+  await p3.waitForTimeout(600);
+  await p3.locator('.btn[data-close]').click();
+  for (const t of ['wail1', 'yelp', 'hilo', 'wail2']) {
+    await p3.locator(`[data-tone="${t}"]`).click();
+    await p3.waitForTimeout(250);
+  }
+  const calls = await p3.evaluate(() => window.__wakeCalls);
+  ok('stub was actually exercised', calls >= 1, `${calls} requests`);
+  ok('one sentinel across four tone changes', calls === 1, `${calls} requests`);
+
+  // Releasing on silence, then re-taking it, is the intended round trip.
+  // The release is deliberately deferred ~400 ms so a tone swap does not
+  // churn the lock, so wait past that before expecting a second request.
+  await p3.locator('#keyStop').click();
+  await p3.waitForTimeout(900);
+  await p3.locator('[data-tone="yelp"]').click();
+  await p3.waitForTimeout(300);
+  const after = await p3.evaluate(() => window.__wakeCalls);
+  ok('re-acquired after going silent', after === 2, `${after} total`);
+  await ctx3.close();
+}
+
+console.log('\n--- keys are operable from a keyboard ---');
+{
+  await p.locator('#keyStop').click();
+  await p.waitForTimeout(300);
+  // Latching key: Enter toggles it.
+  await p.locator('[data-tone="wail1"]').focus();
+  await p.keyboard.press('Enter');
+  await p.waitForTimeout(500);
+  ok('Enter latches a tone key',
+    await p.getAttribute('[data-tone="wail1"]', 'aria-pressed') === 'true');
+  await p.keyboard.press('Enter');
+  await p.waitForTimeout(300);
+  ok('Enter again releases it',
+    await p.getAttribute('[data-tone="wail1"]', 'aria-pressed') === 'false');
+
+  // Momentary key: sound lasts only while the key is held.
+  await p.locator('#keyHorn').focus();
+  await p.keyboard.down(' ');
+  await p.waitForTimeout(600);
+  const held = await meter();
+  await p.keyboard.up(' ');
+  await p.waitForTimeout(700);
+  const released = await meter();
+  ok('Space holds the air horn', held > 10, `${held.toFixed(0)}%`);
+  ok('releasing Space stops it', released < 2, `${released.toFixed(0)}%`);
+
+  // Key-repeat must not machine-gun a latch on and off.
+  await p.locator('[data-tone="yelp"]').focus();
+  await p.keyboard.down('Enter');
+  await p.waitForTimeout(700);
+  const latched = await p.getAttribute('[data-tone="yelp"]', 'aria-pressed');
+  await p.keyboard.up('Enter');
+  ok('held Enter does not re-trigger the latch', latched === 'true', `aria-pressed=${latched}`);
+  await p.locator('#keyStop').click();
+}
+
+console.log(`\n\x1b[1m${pass}/${pass + fail} UI checks passed\x1b[0m${fail ? `  \x1b[31m(${fail} failing)\x1b[0m` : ''}`);
+console.log('page errors:', errs.length ? errs.slice(0, 3) : 'none');
+await b.close();
+process.exit(fail ? 1 : 0);

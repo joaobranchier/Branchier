@@ -64,6 +64,8 @@ body {
 /* ------------------------------ stage ------------------------------ */
 
 .stage {
+  position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -97,6 +99,10 @@ body {
     0 0 0 .14em var(--shell-edge),
     0 2.4em 4em -1.2em rgba(0, 0, 0, .85);
 }
+
+/* Standby: the panel goes dark but the case still reads as a physical object. */
+.remote.is-standby .face { opacity: .34; filter: saturate(.25); transition: opacity .25s, filter .25s; }
+.remote.is-standby .lcd { opacity: .6; }
 
 /* moulded buttons on the case edges */
 .side { position: absolute; top: 12em; display: flex; flex-direction: column; gap: 1.1em; }
@@ -209,6 +215,16 @@ body {
 .ico--wave { width: 3.2em; height: 1.15em; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .ico--stop { width: 2.9em; height: 2.9em; color: var(--red); }
 .ico--horn { width: 5.8em; height: 4em; color: var(--red); }
+
+/* Keyboard focus. Drawn outside the key so it survives overflow: hidden. */
+.key:focus-visible {
+  outline: none;
+  box-shadow:
+    inset 0 .1em 0 rgba(255,255,255,.9),
+    0 .34em .05em -.06em rgba(0,0,0,.45),
+    0 0 0 .28em var(--shell-2),
+    0 0 0 .5em var(--amber);
+}
 
 /* pressed */
 .key.is-down {
@@ -328,6 +344,9 @@ body {
 .strobe__half--l { background: #ff1414; }
 .strobe__half--r { background: #1440ff; }
 .strobe--white .strobe__half { background: #fff; }
+
+/* LMB: behind the unit, and deaf to touches so the keys keep working. */
+.strobe--behind { z-index: 1; pointer-events: none; }
 
 .strobe__exit {
   position: absolute; left: 50%; bottom: calc(var(--safe-b) + 26px);

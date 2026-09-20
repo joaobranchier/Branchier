@@ -14,7 +14,20 @@
  * speaker pair. It is a small detail that does a lot of the realism.
  */
 
+import { toneRange } from './tones.js';
+
 const TAU = Math.PI * 2;
+
+/** Used when RUMBLE is switched on before any siren is playing. */
+const TONES_FALLBACK = { kind: 'sweep', lo: 725, hi: 1800, rateHz: 0.25, shape: 'tri' };
+
+/**
+ * A finite, positive frequency or the given fallback. Every value that
+ * reaches an AudioParam goes through here: one NaN is enough to silence a
+ * node permanently, and the exception it throws is raised far from the spec
+ * that actually caused it.
+ */
+const hzOr = (v, fallback) => (Number.isFinite(v) && v > 0 ? v : fallback);
 
 /* ------------------------------------------------------------------ *
  * LFO shape tables
@@ -113,6 +126,24 @@ class Voice {
 
   /** Current fundamental in Hz, for the LCD. Overridden per family. */
   frequency() { return 0; }
+
+  /**
+   * Immediate silence — what STOP and the power button need.
+   *
+   * stop() is a musical release: the Q-siren's takes nineteen seconds of
+   * coast-down, which is right when you switch that tone off but wrong when
+   * someone hits the panic button. kill() skips the tail entirely and only
+   * ramps far enough to avoid a click.
+   */
+  kill(when) {
+    if (this.stopped) return;
+    this.stopped = true;
+    const t = when ?? this.ctx.currentTime;
+    this.out.gain.cancelScheduledValues(t);
+    this.out.gain.setValueAtTime(this.out.gain.value, t);
+    this.out.gain.linearRampToValueAtTime(0, t + 0.012);
+    this._teardown(t + 0.06);
+  }
 
   stop(when) {
     if (this.stopped) return;
@@ -370,7 +401,10 @@ export class MechanicalVoice extends Voice {
     this.stopped = true;
     const t = when ?? this.ctx.currentTime;
     const s = this.spec;
-    this.coastFrom = this.frequency();
+    // Read the rotor speed at the moment power is cut, not at whatever
+    // currentTime happens to be — they differ whenever the stop is scheduled
+    // ahead, and the coast-down would start from the wrong pitch.
+    this.coastFrom = this.frequency(t);
     this.phase = 'down';
     this.phaseStart = t;
 
@@ -397,9 +431,9 @@ export class MechanicalVoice extends Voice {
     this._teardown(t + s.coastDownS + 0.4);
   }
 
-  frequency() {
+  frequency(at) {
     const s = this.spec;
-    const el = this.ctx.currentTime - this.phaseStart;
+    const el = (at ?? this.ctx.currentTime) - this.phaseStart;
     const peak = this._hzFor(s.runRpm);
     if (this.phase === 'up') {
       const k = Math.min(1, el / s.spinUpS);
@@ -490,29 +524,36 @@ export class RumbleVoice extends Voice {
   constructor(engine, spec, source) {
     super(engine, spec);
     const wave = engine.waves[spec.wave] || engine.waves.rumble;
-    const src = source ?? { lo: 725, hi: 1800, rateHz: 0.25, shape: 'tri' };
+    const src = toneRange(source ?? TONES_FALLBACK);
 
     // Pick the octave division that lands the tone inside the Rumbler's own
-    // 182–400 Hz working band, whatever the parent siren is doing.
+    // 182-400 Hz working band, whatever the parent siren is doing.
     const centre = (src.lo + src.hi) / 2;
-    let div = 2;
-    while (centre / div > 400 && div < 32) div *= 2;
-    const lo = Math.max(spec.lo, src.lo / div);
-    const hi = Math.min(spec.hi, src.hi / div);
+    let div = 1;
+    while (centre / div > spec.hi && div < 64) div *= 2;
 
-    this.lo = lo; this.hi = hi; this.rate = src.rateHz ?? 0.25; this.shape = src.shape ?? 'tri';
-    const mid = (lo + hi) / 2;
+    // Clamped and checked: a tone whose spec carries no lo/hi at all used to
+    // arrive here as NaN and poison the oscillator's frequency outright.
+    const lo = hzOr(Math.max(spec.lo, src.lo / div), spec.lo);
+    const hi = hzOr(Math.min(spec.hi, Math.max(src.hi / div, lo + 1)), spec.hi);
 
-    this.carrier = this._osc(wave, mid);
+    this.lo = Math.min(lo, hi);
+    this.hi = Math.max(lo, hi);
+    this.rate = Number.isFinite(src.rateHz) ? src.rateHz : 0;
+    this.shape = src.shape ?? 'tri';
+
+    this.carrier = this._osc(wave, (this.lo + this.hi) / 2);
     this.carrier.connect(this.out);
 
-    if (hi - lo > 2) {
+    // A tone that does not sweep (the air horn, the Q-siren) gets a steady
+    // sub underneath it rather than a modulator running at 0 Hz.
+    if (this.hi - this.lo > 2 && this.rate > 0.01) {
       this.lfo = this.ctx.createOscillator();
       this._track(this.lfo);
       this.lfo.frequency.value = this.rate;
       if (this.shape === 'sq') this.lfo.type = 'square';
       else this.lfo.setPeriodicWave(asymTriangleWave(this.ctx, this.shape === 'ramp' ? 0.68 : 0.5));
-      const depth = this._gain((hi - lo) / 2);
+      const depth = this._gain((this.hi - this.lo) / 2);
       this.lfo.connect(depth).connect(this.carrier.frequency);
     }
   }

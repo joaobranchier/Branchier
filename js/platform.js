@@ -11,10 +11,25 @@ const KEY = 'sirenremote.v1';
 
 /** localStorage throws outright in Lockdown Mode and private windows. */
 export function loadPrefs(defaults) {
+  let stored = {};
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? { ...defaults, ...JSON.parse(raw) } : { ...defaults };
-  } catch { return { ...defaults }; }
+    if (raw) stored = JSON.parse(raw) ?? {};
+  } catch { /* unreadable or not JSON — fall through to the defaults */ }
+  if (typeof stored !== 'object' || Array.isArray(stored)) stored = {};
+
+  // Only take a stored value when it has the same shape as the default. A
+  // hand-edited or half-written entry otherwise reaches an AudioParam as a
+  // string or NaN, and an AudioParam given either of those throws.
+  const out = { ...defaults };
+  for (const [key, fallback] of Object.entries(defaults)) {
+    const v = stored[key];
+    if (v === undefined) continue;
+    if (typeof fallback === 'number') { if (Number.isFinite(v)) out[key] = v; }
+    else if (typeof fallback === 'boolean') { if (typeof v === 'boolean') out[key] = v; }
+    else if (typeof fallback === 'string') { if (typeof v === 'string') out[key] = v; }
+  }
+  return out;
 }
 
 export function savePrefs(prefs) {
@@ -29,32 +44,60 @@ export function savePrefs(prefs) {
  * siren would simply stop mid-run. Safari 16.4+.
  */
 export class ScreenLock {
-  constructor() { this._lock = null; this._want = false; this._bound = false; }
+  constructor() {
+    this._lock = null;
+    this._pending = null;
+    this._want = false;
+    this._bound = false;
+    this._blocked = false;
+  }
+
+  /** Bound once, and before the first request — a request that fails needs
+   *  this listener just as much as one that succeeds, to un-block itself. */
+  _bind() {
+    if (this._bound) return;
+    this._bound = true;
+    // iOS drops the lock whenever the tab is backgrounded and does not give
+    // it back on return, so it has to be re-taken by hand.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      this._blocked = false;
+      if (this._want && !this._lock) this.enable().catch(() => {});
+    });
+  }
 
   async enable() {
     this._want = true;
     if (!('wakeLock' in navigator)) return false;
+    this._bind();
+    // syncScreenLock() runs on every tone change. Without this guard each one
+    // requested a fresh sentinel and dropped the previous one un-released,
+    // leaking them for as long as the app stayed open.
+    if (this._lock) return true;
+    if (this._pending) return this._pending;
+    // A request rejects when the document is hidden, or outright where the
+    // API is disabled. Retrying on every tone change after that is pointless
+    // noise; _bind's listener clears this and tries again on return.
+    if (this._blocked) return false;
     try {
-      this._lock = await navigator.wakeLock.request('screen');
+      this._pending = navigator.wakeLock.request('screen');
+      this._lock = await this._pending;
+      this._pending = null;
       this._lock.addEventListener?.('release', () => { this._lock = null; });
-      if (!this._bound) {
-        // iOS drops the lock whenever the tab is backgrounded, and does not
-        // give it back on return, so it has to be re-taken by hand.
-        document.addEventListener('visibilitychange', () => {
-          if (document.visibilityState === 'visible' && this._want && !this._lock) {
-            this.enable().catch(() => {});
-          }
-        });
-        this._bound = true;
-      }
       return true;
-    } catch { return false; }
+    } catch {
+      this._pending = null;
+      this._blocked = true;
+      return false;
+    }
   }
 
   async disable() {
     this._want = false;
+    this._blocked = false;
     try { await this._lock?.release(); } catch {}
     this._lock = null;
+    this._pending = null;
   }
 
   get active() { return !!this._lock; }

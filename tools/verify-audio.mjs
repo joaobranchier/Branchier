@@ -305,5 +305,52 @@ for (const id of ['wail1', 'yelp']) {
   assert(`${T.label} readout tracks audio`, worst < 15, `worst ${worst.toFixed(1)}% off`);
 }
 
+group('Regressions');
+{
+  // RUMBLE used to read .lo/.hi straight off the active tone. The mechanical
+  // and horn specs carry neither, so it reached the oscillator as NaN and
+  // threw "the provided float value is non-finite".
+  for (const src of ['wail1', 'wail2', 'yelp', 'phaser', 'hilo', 'wawa', 'mech', 'airhorn', 'manual']) {
+    let ok = true, why = '';
+    let peak = 0;
+    try {
+      const data = await render('rumbler', 3, { sourceId: src, tone: { bass: true } });
+      for (let i = 0; i < data.length; i++) {
+        if (!Number.isFinite(data[i])) { ok = false; why = 'NaN in output'; break; }
+        peak = Math.max(peak, Math.abs(data[i]));
+      }
+      if (ok && peak < 1e-4) { ok = false; why = 'silent'; }
+    } catch (e) { ok = false; why = e.message.slice(0, 44); }
+    assert(`RUMBLE under ${TONES[src].label}`, ok, ok ? `peak ${peak.toFixed(3)}` : why);
+  }
+
+  // STOP used to call the ordinary release, so the Q-siren kept sounding for
+  // its full nineteen-second coast-down after the panic button was pressed.
+  const ctx = new OfflineAudioContext(1, SR * 8, SR);
+  const eng = new AudioEngine();
+  eng.ctx = ctx; eng.waves = buildWaves(ctx); eng.noiseBuffer = makeNoiseBuffer(ctx);
+  eng._buildChain(); eng.ready = true;
+  const q = createVoice(eng, TONES.mech);
+  q.start(0);
+  q.kill(5);
+  const data = (await ctx.startRendering()).getChannelData(0);
+  const rms = (t) => {
+    let s2 = 0;
+    const n = Math.floor(SR * 0.2);
+    for (let i = 0; i < n; i++) { const x = data[Math.floor(SR * t) + i] || 0; s2 += x * x; }
+    return Math.sqrt(s2 / n);
+  };
+  const before = rms(4.5), after = rms(5.3), later = rms(7);
+  assert('kill() silences the Q-siren at once', after < before * 0.02 && later < 1e-4,
+    `${before.toFixed(4)} -> ${after.toFixed(4)} -> ${later.toFixed(4)}`);
+
+  // A half-written localStorage entry used to reach an AudioParam as NaN,
+  // which throws rather than being ignored.
+  let threw = false;
+  try { eng.setVolume(NaN); eng.setVolume(undefined); eng.setVolume('loud'); }
+  catch { threw = true; }
+  assert('setVolume survives a corrupt preference', !threw && Number.isFinite(eng.volume), `volume=${eng.volume}`);
+}
+
 console.log(`\n\x1b[1m${pass}/${pass + fail} checks passed\x1b[0m${fail ? `  \x1b[31m(${fail} failing)\x1b[0m` : ''}\n`);
 process.exit(fail ? 1 : 0);

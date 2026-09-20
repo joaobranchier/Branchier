@@ -184,8 +184,14 @@ export function openTones() {
       variável com a rotação (≈400–800 Hz em regime), embreagem de roda-livre
       para a descida longa. A frequência sai de f = (rpm ÷ 60) × portas.
     </small></p>
+    <button class="btn btn--ghost" id="bBack">Voltar aos ajustes</button>
     <button class="btn" data-close>Fechar</button>
-  `);
+  `, wireBack);
+}
+
+/** Sub-sheets replace the settings body, so they need a way back to it. */
+function wireBack(root) {
+  root.querySelector('#bBack')?.addEventListener('click', openSettings);
 }
 
 /* ------------------------------- about ------------------------------- */
@@ -224,6 +230,7 @@ export function openAbout() {
 
     <p><small>Sem anúncios, sem rastreamento, sem rede. Nenhum dado sai do aparelho —
        os ajustes ficam no armazenamento local do próprio navegador.</small></p>
+    <button class="btn btn--ghost" id="bBack">Voltar aos ajustes</button>
     <button class="btn" data-close>Fechar</button>
-  `);
+  `, wireBack);
 }

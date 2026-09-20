@@ -23,8 +23,6 @@ function path(cycles, shape, amp = 1) {
   const pts = [];
   const top = PAD + (H - PAD * 2) * (1 - amp) / 2;
   const bot = H - PAD - (H - PAD * 2) * (1 - amp) / 2;
-  const steps = shape === 'sq' ? 2 : 2;
-
   if (shape === 'sq') {
     // Hi-Lo does not sweep, so its glyph is a square wave, not a zigzag.
     const seg = W / (cycles * 2);

@@ -5,11 +5,13 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "python3 -m http.server 8099",
     "test": "node tools/verify-audio.mjs",
-    "icons": "python3 tools/make-icons.py",
-    "start": "python3 -m http.server 8080"
+    "test:ui": "node tools/verify-ui.mjs",
+    "icons": "python3 tools/make-icons.py"
   },
   "devDependencies": {
-    "node-web-audio-api": "^1.0.4"
+    "node-web-audio-api": "^1.0.4",
+    "playwright": "^1.47.0"
   }
 }

@@ -4,7 +4,7 @@
 
 import { AudioEngine } from './audio/engine.js';
 import { createVoice } from './audio/voices.js';
-import { TONES, SIREN_IDS, AUTO_CYCLE, MOD_STEPS } from './audio/tones.js';
+import { TONES, AUTO_CYCLE, MOD_STEPS } from './audio/tones.js';
 import { Strobe } from './ui/strobe.js';
 import { injectWaveIcons } from './ui/waveicons.js';
 import { initSheets, openWelcome, openSettings, isOpen as sheetOpen, close as closeSheet } from './ui/sheets.js';
@@ -70,9 +70,23 @@ class Controller {
     this.standby = false;
   }
 
-  /** The tone whose name and frequency the display follows. */
-  get primary() {
-    return this.held.get('manual') ? null : (this.active.keys().next().value ?? null);
+  /**
+   * The tone the display and the rumble layer follow. A held momentary key
+   * outranks a latched one — it is what the finger is doing right now.
+   */
+  get primaryId() {
+    if (this.held.has('manual')) return 'manual';
+    const latched = this.active.keys().next().value;
+    if (latched) return latched;
+    if (this.held.has('horn')) return 'airhorn';
+    return null;
+  }
+
+  get primaryVoice() {
+    if (this.held.has('manual')) return this.held.get('manual');
+    const latched = this.active.keys().next().value;
+    if (latched) return this.active.get(latched);
+    return this.held.get('horn') ?? null;
   }
 
   startTone(id) {
@@ -110,7 +124,8 @@ class Controller {
   /** Keeps the low-frequency layer following whatever is currently playing. */
   syncRumble() {
     const want = this.rumble && (this.active.size > 0 || this.held.size > 0);
-    const source = this.primary ? TONES[this.primary] : TONES.wail1;
+    const id = this.primaryId;
+    const source = id ? TONES[id] : TONES.wail1;
 
     if (!want) {
       this.rumbleVoice?.stop();
@@ -126,10 +141,24 @@ class Controller {
     this.rumbleVoice.start();
   }
 
+  get isSounding() {
+    return this.active.size > 0 || this.held.size > 0 || this.strobe.active;
+  }
+
   syncScreenLock() {
-    const sounding = this.active.size > 0 || this.held.size > 0 || this.strobe.active;
-    if (sounding && this.prefs.wakeLock) this.screenLock.enable();
-    else if (!sounding) this.screenLock.disable();
+    if (this.isSounding && this.prefs.wakeLock) {
+      clearTimeout(this._lockOff);
+      this.screenLock.enable();
+      return;
+    }
+    // Switching tone stops one voice and starts the next, so this runs with
+    // nothing sounding for a moment in between. Releasing the lock there and
+    // taking it again restarts the idle timer on every single key press, so
+    // the release waits to see whether anything picks up.
+    clearTimeout(this._lockOff);
+    this._lockOff = setTimeout(() => {
+      if (!this.isSounding) this.screenLock.disable();
+    }, 400);
   }
 
   /* --------------------------- momentary --------------------------- */
@@ -167,7 +196,7 @@ class Controller {
     document.getElementById('chipMix').classList.toggle('chip--off', !this.mix);
     // Leaving MIX collapses back to a single tone.
     if (!this.mix && this.active.size > 1) {
-      const keep = this.primary;
+      const keep = this.primaryId;
       for (const id of [...this.active.keys()]) if (id !== keep) this.stopTone(id);
     }
   }
@@ -193,7 +222,8 @@ class Controller {
       this.autoIndex = (this.autoIndex + 1) % AUTO_CYCLE.length;
       this.stopAllTones();
       this.startTone(AUTO_CYCLE[this.autoIndex]);
-    }, this.prefs.autoSecs * 1000);
+      // A corrupt stored value here would otherwise become setInterval(…, 0).
+    }, Math.max(2, Math.min(60, this.prefs.autoSecs || 6)) * 1000);
   }
 
   cancelAuto() {
@@ -233,25 +263,45 @@ class Controller {
 
   /* ------------------------------ stop ------------------------------ */
 
+  /**
+   * STOP. Every voice is killed outright rather than released: the Q-siren's
+   * normal release is a nineteen-second coast-down, and a panic button that
+   * keeps sounding for nineteen seconds is not a panic button.
+   */
   panic() {
     this.cancelAuto();
-    this.stopAllTones();
-    for (const k of [...this.held.keys()]) this.release(k);
-    this.rumbleVoice?.stop();
+    for (const [id, voice] of this.active) { voice.kill(); this.setKey(`[data-tone="${id}"]`, false); }
+    this.active.clear();
+    for (const voice of this.held.values()) voice.kill();
+    this.held.clear();
+    for (const el of document.querySelectorAll('.key--horn.is-down, .key--pill.is-down')) el.classList.remove('is-down');
+    this.rumbleVoice?.kill();
     this.rumbleVoice = null;
     this._rumbleSource = null;
     this.engine.panic();
     this.syncScreenLock();
   }
 
-  powerOff() {
+  /** The side power key: standby on the way down, wake on the way back. */
+  togglePower() {
+    if (this.standby) {
+      this.standby = false;
+      document.getElementById('remote').classList.remove('is-standby');
+      this.ensureAudio().catch(() => {});
+      return;
+    }
     this.panic();
     this.strobe.stop();
     this.standby = true;
-    for (const k of document.querySelectorAll('.key.is-on')) k.classList.remove('is-on');
-    this.mix = false; this.rumble = false;
+    document.getElementById('remote').classList.add('is-standby');
+    for (const k of document.querySelectorAll('.key.is-on')) {
+      k.classList.remove('is-on');
+      if (k.hasAttribute('aria-pressed')) k.setAttribute('aria-pressed', 'false');
+    }
+    this.mix = false; this.rumble = false; this.modStep = 1;
     this.engine.setTone({ high: false, bass: false });
     document.getElementById('chipEq').textContent = 'FLAT';
+    document.getElementById('chipMod').textContent = MOD_STEPS[1].label;
     document.getElementById('chipMix').classList.add('chip--off');
     document.getElementById('chipMix').classList.remove('chip--hot');
   }
@@ -259,7 +309,18 @@ class Controller {
   /* ------------------------------ view ------------------------------ */
 
   setKey(selector, on) {
-    document.querySelector(selector)?.classList.toggle('is-on', on);
+    const el = document.querySelector(selector);
+    if (!el) return;
+    el.classList.toggle('is-on', on);
+    // A latched key is a toggle, and a screen reader has no other way to
+    // learn that the amber backlight means "this tone is running".
+    if (el.hasAttribute('aria-pressed')) el.setAttribute('aria-pressed', String(on));
+  }
+
+  /** A short message that briefly takes over the frequency readout. */
+  flash(text, ms = 1100) {
+    this._flashText = text;
+    this._flashUntil = performance.now() + ms;
   }
 
   render() {
@@ -267,26 +328,28 @@ class Controller {
     const hz = document.getElementById('lcdHz');
     const meter = document.getElementById('meterFill');
 
-    const manual = this.held.get('manual');
-    const horn = this.held.get('horn');
-    const id = this.primary;
+    const id = this.primaryId;
+    const voice = this.primaryVoice;
 
-    if (manual) {
-      tone.textContent = 'MANUAL';
-      hz.textContent = `${Math.round(manual.frequency())} Hz`;
-    } else if (horn) {
-      tone.textContent = 'AIR HORN';
-      hz.textContent = `${Math.round(horn.frequency())} Hz`;
-    } else if (id) {
+    if (id) {
       const extra = this.active.size > 1 ? ` +${this.active.size - 1}` : '';
       tone.textContent = TONES[id].label + extra;
-      hz.textContent = `${Math.round(this.active.get(id).frequency())} Hz`;
     } else {
       tone.textContent = this.standby ? 'STANDBY' : 'PRONTO';
-      hz.textContent = '';
     }
 
-    meter.style.width = `${Math.round(this.engine.level() * 100)}%`;
+    // A volume nudge writes here too, and used to be overwritten by the very
+    // next frame — so the readout never actually appeared.
+    if (this._flashUntil && performance.now() < this._flashUntil) {
+      hz.textContent = this._flashText;
+    } else {
+      this._flashUntil = 0;
+      const f = voice?.frequency();
+      hz.textContent = Number.isFinite(f) && f > 0 ? `${Math.round(f)} Hz` : '';
+    }
+
+    const level = (id || this.rumbleVoice) ? this.engine.level() : 0;
+    meter.style.width = `${Math.round(level * 100)}%`;
     requestAnimationFrame(() => this.render());
   }
 }
@@ -314,24 +377,35 @@ const ACTIONS = {
 /** Momentary keys: the sound lasts exactly as long as the finger is down. */
 const MOMENTARY = { horn: 'airhorn', manual: 'manual' };
 
+const LATCHING = new Set(['tone', 'eq', 'auto', 'mix', 'rumble', 'lmb', 'light']);
+
 function wire(el) {
   const act = el.dataset.act;
   const momentaryTone = MOMENTARY[act];
+  if (LATCHING.has(act)) el.setAttribute('aria-pressed', 'false');
 
-  const down = async (e) => {
+  // Unlocking the audio on the very first press takes long enough that a
+  // quick tap can finish before it resolves. Without this the release ran
+  // against an empty map and the note started afterwards — the air horn
+  // would sound forever on the first tap of the session.
+  let down = false;
+
+  const onDown = async (e) => {
     e.preventDefault();
+    down = true;
     el.classList.add('is-down');
     ctl.haptics.tap();
-    await ctl.ensureAudio();
-    if (momentaryTone) {
+    if (momentaryTone && e.pointerId !== undefined) {
       try { el.setPointerCapture(e.pointerId); } catch {}
-      ctl.press(act, momentaryTone);
-    } else {
-      ACTIONS[act]?.(el);
     }
+    await ctl.ensureAudio();
+    if (!down) return;
+    if (momentaryTone) ctl.press(act, momentaryTone);
+    else ACTIONS[act]?.(el);
   };
 
-  const up = () => {
+  const onUp = () => {
+    down = false;
     el.classList.remove('is-down');
     if (momentaryTone) ctl.release(act);
   };
@@ -339,11 +413,28 @@ function wire(el) {
   // pointerdown, not click: a siren button has to fire on contact, and the
   // ~300 ms a synthesised click costs is the difference between an
   // instrument and a web page.
-  el.addEventListener('pointerdown', down);
-  el.addEventListener('pointerup', up);
-  el.addEventListener('pointercancel', up);
-  el.addEventListener('lostpointercapture', up);
+  el.addEventListener('pointerdown', onDown);
+  el.addEventListener('pointerup', onUp);
+  el.addEventListener('pointercancel', onUp);
+  el.addEventListener('lostpointercapture', onUp);
   el.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // These are <button>s, focusable and carrying aria-pressed, but they act on
+  // pointerdown — so without this they were unreachable from a keyboard.
+  // Enter and Space mirror press and release, which also gives the momentary
+  // keys their hold-to-sound behaviour.
+  el.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    if (e.repeat) return;        // key-repeat must not re-trigger a latch
+    onDown(e);
+  });
+  el.addEventListener('keyup', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    onUp();
+  });
+  el.addEventListener('blur', onUp);
 }
 
 for (const el of document.querySelectorAll('.key[data-act]')) wire(el);
@@ -353,13 +444,17 @@ for (const el of document.querySelectorAll('.key[data-act]')) wire(el);
 const nudge = (delta) => {
   ctl.haptics.tap();
   ctl.setVolume(Math.max(0, Math.min(1, ctl.engine.volume + delta)));
-  const l = document.getElementById('lcdHz');
-  l.textContent = `VOL ${Math.round(ctl.engine.volume * 100)}%`;
+  ctl.flash(`VOL ${Math.round(ctl.engine.volume * 100)}%`);
 };
-document.getElementById('btnVolUp').addEventListener('click', () => nudge(0.08));
-document.getElementById('btnVolDown').addEventListener('click', () => nudge(-0.08));
-document.getElementById('btnPower').addEventListener('click', () => { ctl.haptics.tap(); ctl.powerOff(); });
-document.getElementById('btnInfo').addEventListener('click', async () => {
+
+// pointerdown here too, for the same reason the keys use it.
+const side = (id, fn) =>
+  document.getElementById(id).addEventListener('pointerdown', (e) => { e.preventDefault(); fn(); });
+
+side('btnVolUp', () => nudge(0.08));
+side('btnVolDown', () => nudge(-0.08));
+side('btnPower', () => { ctl.haptics.tap(); ctl.togglePower(); });
+side('btnInfo', async () => {
   ctl.haptics.tap();
   await ctl.ensureAudio().catch(() => {});
   openSettings();
@@ -367,8 +462,10 @@ document.getElementById('btnInfo').addEventListener('click', async () => {
 
 /* ------------------------------ strobe exit ------------------------------ */
 
-const strobeEl = document.getElementById('strobe');
-strobeEl.addEventListener('pointerdown', (e) => {
+// Only the fullscreen torch closes on a tap; the lightbar behind the unit is
+// pointer-transparent and is switched off with its own key.
+document.getElementById('strobe').addEventListener('pointerdown', (e) => {
+  if (ctl.strobe.mode !== 'white') return;
   e.preventDefault();
   ctl.strobe.stop();
   ctl.syncScreenLock();
@@ -386,7 +483,10 @@ document.addEventListener('visibilitychange', () => {
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { ctl.strobe.stop(); if (sheetOpen()) closeSheet(); }
-  if (e.key === ' ') { e.preventDefault(); ctl.panic(); }
+  // Space is panic only when no key has focus — otherwise it belongs to the
+  // focused button, which handles it itself.
+  const onKey = document.activeElement?.closest?.('.key');
+  if (e.key === ' ' && !onKey) { e.preventDefault(); ctl.panic(); }
 });
 
 /* Stop iOS from bouncing or zooming the faceplate. Dragging off a key must
@@ -394,8 +494,17 @@ window.addEventListener('keydown', (e) => {
    in landscape), scrolling is the only way to reach the bottom row, so the
    block is lifted in that case. */
 document.addEventListener('gesturestart', (e) => e.preventDefault());
+let pageScrolls = false;
+const measurePage = () => {
+  pageScrolls = document.documentElement.scrollHeight > window.innerHeight + 1;
+};
+// Measured on resize rather than inside the handler: reading scrollHeight
+// forces a layout, and doing that on every touchmove stutters a drag.
+addEventListener('resize', measurePage);
+addEventListener('orientationchange', () => setTimeout(measurePage, 250));
+measurePage();
+
 document.addEventListener('touchmove', (e) => {
-  const pageScrolls = document.documentElement.scrollHeight > window.innerHeight + 1;
   if (!pageScrolls && !e.target.closest('.sheet__body')) e.preventDefault();
 }, { passive: false });
 
@@ -409,6 +518,19 @@ if (isIOS() && !isStandalone()) {
   document.getElementById('hint').textContent =
     'Compartilhar → Adicionar à Tela de Início para tela cheia';
 }
+
+ctl.engine.onStateChange((state) => {
+  // iOS suspends the context for a phone call, Siri, or a route change. The
+  // panel would otherwise look alive and do nothing.
+  const hint = document.getElementById('hint');
+  if (state === 'suspended' || state === 'interrupted') {
+    hint.style.opacity = '1';
+    hint.dataset.state = '';
+    hint.textContent = 'Áudio pausado pelo sistema — toque para retomar';
+  } else if (state === 'running') {
+    hint.style.opacity = '0';
+  }
+});
 
 ctl.render();
 

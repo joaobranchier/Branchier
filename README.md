@@ -65,10 +65,13 @@ do Safari, e a partir daí não precisa mais de internet.
 | **MOD** | Altera a velocidade de varredura do tom ativo: SLOW / STD / FAST. |
 | **MIX** | Empilha tons em vez de trocá-los. |
 | **AUTO** | Varre wail → yelp → phaser sozinho. |
-| **LMB** | Giroflex vermelho/azul em tela cheia. |
-| **LIGHT** | Luz branca fixa (serve de lanterna). |
+| **LMB** | Giroflex vermelho/azul piscando **atrás** do controle — os botões continuam funcionando. |
+| **LIGHT** | Luz branca em tela cheia (serve de lanterna). Toque para sair. |
 | **STOP** | Corta tudo na hora. |
 | Laterais | Volume (esquerda), liga/desliga e ajustes (direita). |
+
+Tudo também funciona por teclado: Tab para navegar, Enter ou Espaço para
+acionar. Nos botões momentâneos o som dura enquanto a tecla fica pressionada.
 
 ## Como o som é feito
 
@@ -102,30 +105,40 @@ descida longa por causa da embreagem de roda-livre.
 
 ```bash
 npm install     # só para os testes
-npm start       # serve em http://localhost:8080
+npm start       # serve em http://localhost:8099
 ```
 
 Precisa ser servido por HTTP — módulos ES não carregam via `file://`.
 
 ## Testes
 
-O projeto inteiro é uma afirmação sobre frequências, e afirmação sobre
-frequência se mede:
+São duas suítes.
 
-```bash
-npm test
+**`npm test`** — o projeto inteiro é uma afirmação sobre frequências, e
+afirmação sobre frequência se mede. Renderiza cada voz em um
+`OfflineAudioContext` e confere o resultado contra os números da tabela acima:
+a taxa de varredura pelo rastro do centroide espectral, a altura por *harmonic
+product spectrum* (o 2º harmônico de uma sirene fica só ~2 dB abaixo da
+fundamental, então um detector de "bin mais alto" troca de oitava no meio da
+varredura). Também verifica que a saída nunca passa de fundo de escala,
+inclusive empilhando sirene + rumble + air horn no volume máximo.
+
+**`npm run test:ui`** — dirige o faceplate de verdade num navegador de verdade
+(precisa do `npm start` rodando). Cada verificação aqui corresponde a um defeito
+que ler o código não pegou:
+
+- o STOP deixava a Q-siren descendo por 19 segundos, porque chamava o release
+  normal em vez de matar a voz;
+- o RUMBLE lia `.lo`/`.hi` direto do tom ativo, e as especificações mecânica e
+  de buzina não têm esse par — chegava ao oscilador como NaN e lançava exceção;
+- a air horn ficava presa para sempre se o primeiro toque terminasse antes de o
+  `AudioContext` acabar de ser construído;
+- o wake lock era liberado e repedido a cada troca de tom, reiniciando o
+  temporizador de inatividade do iOS a cada toque.
+
 ```
-
-Isso renderiza cada voz em um `OfflineAudioContext` e confere o resultado
-contra os números da tabela acima: a taxa de varredura pelo rastro do centroide
-espectral, a altura por *harmonic product spectrum* (o 2º harmônico de uma
-sirene fica só ~2 dB abaixo da fundamental, então um detector de "bin mais
-alto" troca de oitava no meio da varredura). Também verifica que a saída nunca
-passa de fundo de escala, inclusive empilhando sirene + rumble + air horn no
-volume máximo.
-
-```
-44/44 checks passed
+55/55 checks passed     (áudio)
+23/23 UI checks passed  (navegador)
 ```
 
 Os ícones são gerados por `python3 tools/make-icons.py`, que escreve os PNGs à
@@ -133,9 +146,8 @@ mão — sem dependência de biblioteca de imagem.
 
 ## Publicando
 
-Um push na `main` dispara o workflow do GitHub Pages, que roda os testes de
-áudio antes de publicar. Em **Settings → Pages**, defina a origem como
-**GitHub Actions**.
+Um push dispara o workflow do GitHub Pages, que roda as duas suítes antes de
+publicar. Em **Settings → Pages**, defina a origem como **GitHub Actions**.
 
 ## Avisos
 

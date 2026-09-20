@@ -1,5 +1,10 @@
 /**
- * strobe.js — full-screen lightbar.
+ * strobe.js — the lightbar.
+ *
+ * LMB flashes *behind* the faceplate, the way the original app presents it,
+ * so the keys stay reachable while the lights run — being unable to change
+ * tone without first killing the lightbar is the wrong trade. LIGHT is the
+ * one that takes the whole screen, because there it is the point: a torch.
  *
  * Patterns are step tables of [leftOn, rightOn, milliseconds], written to
  * match the flash rates real warning bars use (SAE J595 allows 75–240 flashes
@@ -43,6 +48,7 @@ export class Strobe {
     this.root = root;
     this.left = root.querySelector('.strobe__half--l');
     this.right = root.querySelector('.strobe__half--r');
+    this.exit = root.querySelector('.strobe__exit');
     this.raf = 0;
     this.mode = null;           // 'bar' | 'white' | null
     this.pattern = 'alt';
@@ -62,6 +68,9 @@ export class Strobe {
     this.root.hidden = false;
     this.root.setAttribute('aria-hidden', 'false');
     this.root.classList.toggle('strobe--white', mode === 'white');
+    // Behind the faceplate, and transparent to touches, so every key still works.
+    this.root.classList.toggle('strobe--behind', mode === 'bar');
+    this.exit.hidden = mode !== 'white';
 
     if (mode === 'white') {
       // Takedown / scene light: steady, and genuinely useful as a torch.

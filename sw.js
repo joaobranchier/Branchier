@@ -7,7 +7,7 @@
  * where there is signal.
  */
 
-const VERSION = 'siren-remote-v1';
+const VERSION = 'siren-remote-v2';
 const SHELL = [
   './',
   './index.html',
@@ -33,7 +33,13 @@ self.addEventListener('install', (e) => {
     caches.open(VERSION)
       // addAll is all-or-nothing, so one missing file would leave the app
       // uncached entirely. Each file is added on its own instead.
-      .then((c) => Promise.all(SHELL.map((u) => c.add(u).catch(() => {}))))
+      //
+      // cache: 'reload' bypasses the HTTP cache. Without it an updated build
+      // can be "installed" straight from a stale browser cache entry, and the
+      // fix the user is waiting for never actually arrives.
+      .then((c) => Promise.all(
+        SHELL.map((u) => c.add(new Request(u, { cache: 'reload' })).catch(() => {}))
+      ))
       .then(() => self.skipWaiting())
   );
 });

@@ -94,7 +94,8 @@ export const TONES = {
     shape: 'tri',
     wave: 'siren',
     detune: 11,                // wider offset: the interference IS the effect
-    gate: { rateHz: 21.67, depth: 0.55 }, // amplitude pulsing locked to the sweep
+    // Locked to the sweep rather than restated, so the two cannot drift apart.
+    gate: { rateHz: cpmToHz(1300), depth: 0.55 },
     icon: { cycles: 12, shape: 'tri',  amp: 0.90 },
     gain: 0.74,
   },
@@ -128,7 +129,7 @@ export const TONES = {
     shape: 'tri',
     wave: 'siren',
     detune: 6,
-    gate: { rateHz: 2.2, depth: 0.85, phase: 0.25 },
+    gate: { rateHz: cpmToHz(132), depth: 0.85 },
     icon: { cycles: 5,  shape: 'tri',  amp: 0.62 },
     gain: 0.82,
   },
@@ -202,8 +203,32 @@ export const TONES = {
   },
 };
 
-/** Buttons on the faceplate that latch a continuous siren tone. */
-export const SIREN_IDS = ['wail1', 'wail2', 'yelp', 'phaser', 'hilo', 'wawa', 'mech'];
+/**
+ * The frequency span a tone occupies, normalised.
+ *
+ * RUMBLE has to track whatever is currently playing, but the mechanical and
+ * air-horn tones describe themselves with rotor speeds and bell pitches
+ * rather than a lo/hi pair — reading `.lo` off those produced NaN and a
+ * non-finite AudioParam. Every kind answers the same question here.
+ */
+export function toneRange(spec) {
+  switch (spec.kind) {
+    case 'mechanical': {
+      const hi = (spec.runRpm / 60) * spec.ports;
+      return { lo: hi * 0.35, hi, rateHz: 0, shape: 'tri' };
+    }
+    case 'horn': {
+      const hz = spec.bells.map((b) => b.hz);
+      return { lo: Math.min(...hz), hi: Math.max(...hz), rateHz: 0, shape: 'tri' };
+    }
+    default:
+      return {
+        lo: spec.lo, hi: spec.hi,
+        rateHz: spec.rateHz ?? 0,
+        shape: spec.shape ?? 'tri',
+      };
+  }
+}
 
 /** The order AUTO scans through, mirroring a real auto-scan controller. */
 export const AUTO_CYCLE = ['wail1', 'yelp', 'phaser'];

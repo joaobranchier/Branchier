@@ -29,6 +29,19 @@ jobs:
       - run: npm install --no-audit --no-fund
       # The tones are a claim about frequencies, so measure them before shipping.
       - run: npm test
+      # And drive the real faceplate in a real browser: every check in this
+      # suite is a defect that reading the code did not catch.
+      - run: npx playwright install --with-deps chromium
+      - name: Serve and run the browser suite
+        # One step: a background server started in its own step is not
+        # guaranteed to still be running in the next one.
+        run: |
+          npm start &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8099/index.html >/dev/null && break
+            sleep 1
+          done
+          npm run test:ui
 
   deploy:
     needs: verify

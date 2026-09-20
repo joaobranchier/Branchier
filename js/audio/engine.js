@@ -48,6 +48,18 @@ export class AudioEngine {
    * category can only be claimed before the context exists.
    */
   async unlock() {
+    // Two keys pressed together both call this before either resolves, and
+    // without the shared promise that builds a second AudioContext — double
+    // the CPU, and `ready` flapping between them.
+    if (this._unlocking) return this._unlocking;
+    if (!this.ready) {
+      this._unlocking = this._unlock().finally(() => { this._unlocking = null; });
+      return this._unlocking;
+    }
+    return this._unlock();
+  }
+
+  async _unlock() {
     if (this.ready) {
       // Safari suspends the context on interruptions (a call, Siri, the
       // ringer switch). Resuming on every gesture is cheap insurance.
@@ -183,7 +195,9 @@ export class AudioEngine {
   get now() { return this.ctx ? this.ctx.currentTime : 0; }
 
   setVolume(v) {
-    this._volume = Math.max(0, Math.min(1, v));
+    // A corrupt stored preference used to arrive here as NaN, and an
+    // AudioParam given NaN throws outright rather than ignoring it.
+    this._volume = Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0.8;
     if (this.ready) {
       this.master.gain.setTargetAtTime(this._volume, this.now, 0.02);
     }
@@ -228,13 +242,18 @@ export class AudioEngine {
     return Math.min(1, peak / 110);
   }
 
-  /** Hard stop: silence the bus instantly, for the STOP button. */
+  /**
+   * Belt-and-braces mute for STOP. The controller kills each voice
+   * individually, which is what actually stops the sound; this catches
+   * anything that escaped its bookkeeping and covers the gap with a short
+   * ramp rather than a click.
+   */
   panic() {
     if (!this.ready) return;
     const t = this.now;
     this.voiceBus.gain.cancelScheduledValues(t);
     this.voiceBus.gain.setValueAtTime(this.voiceBus.gain.value, t);
     this.voiceBus.gain.linearRampToValueAtTime(0, t + 0.012);
-    this.voiceBus.gain.setValueAtTime(1, t + 0.09);
+    this.voiceBus.gain.setValueAtTime(1, t + 0.08);
   }
 }
