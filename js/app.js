@@ -17,6 +17,7 @@ const DEFAULTS = {
   brightness: 1,
   wakeLock: true,
   haptics: true,
+  clack: true,
   autoSecs: 6,
   seen: false,
 };
@@ -68,6 +69,17 @@ class Controller {
   setPref(key, value) { this.prefs[key] = value; savePrefs(this.prefs); }
   setVolume(v) { this.engine.setVolume(v); this.setPref('volume', v); }
 
+  /**
+   * The key click.
+   * @returns {boolean} whether it actually sounded — false before the audio
+   * exists, which is how the first press of a session gets one anyway.
+   */
+  clack(kind = 'down') {
+    if (!this.prefs.clack || !this.engine.ready) return false;
+    this.engine.click(kind);
+    return true;
+  }
+
   /* ------------------------------ audio ------------------------------ */
 
   async ensureAudio() {
@@ -85,6 +97,7 @@ class Controller {
       await this.engine.ctx.resume().catch(() => {});
     }
     this.standby = false;
+    this.syncDock();
   }
 
   /**
@@ -432,10 +445,11 @@ class Controller {
     this.syncScreenLock();
   }
 
-  /** The side power key: standby on the way down, wake on the way back. */
+  /** The power key: standby on the way down, wake on the way back. */
   togglePower() {
     if (this.standby) {
       this.standby = false;
+      this.syncDock();
       document.getElementById('remote').classList.remove('is-standby');
       this.ensureAudio().catch(() => {});
       return;
@@ -443,6 +457,7 @@ class Controller {
     this.panic();
     this.strobe.stop();
     this.standby = true;
+    this.syncDock();
     document.getElementById('remote').classList.add('is-standby');
     for (const k of document.querySelectorAll('.key.is-on')) {
       k.classList.remove('is-on');
@@ -457,6 +472,15 @@ class Controller {
   }
 
   /* ------------------------------ view ------------------------------ */
+
+  /** Keeps the dock's power key showing whether the unit is awake. */
+  syncDock() {
+    const power = document.getElementById('dockPower');
+    if (power) {
+      power.classList.toggle('is-on', !this.standby);
+      power.setAttribute('aria-pressed', String(!this.standby));
+    }
+  }
 
   setKey(selector, on) {
     const el = document.querySelector(selector);
@@ -575,16 +599,22 @@ function wire(el) {
     pointer = e.pointerId ?? null;
     el.classList.add('is-down');
     ctl.haptics.tap();
+    // Before the await, so it lands with the finger rather than after it. On
+    // the very first press of a session the audio does not exist yet, so the
+    // click is played again once it does.
+    const clacked = ctl.clack('down');
     if (momentaryTone && e.pointerId !== undefined) {
       try { el.setPointerCapture(e.pointerId); } catch {}
     }
     await ctl.ensureAudio();
+    if (!clacked) ctl.clack('down');
     if (!down) return;
     if (momentaryTone) ctl.press(act, momentaryTone);
     else ACTIONS[act]?.(el);
   };
 
   const onUp = () => {
+    if (down && momentaryTone) ctl.clack('up');
     down = false;
     pointer = null;
     el.classList.remove('is-down');
@@ -642,25 +672,51 @@ addEventListener('pointercancel', onWindowUp);
 addEventListener('blur', releaseAllHeld);
 addEventListener('pagehide', releaseAllHeld);
 
-/* ---------------------------- side buttons ---------------------------- */
+/* ------------------------------- dock ------------------------------- */
 
 const nudge = (delta) => {
-  ctl.haptics.tap();
   ctl.setVolume(Math.max(0, Math.min(1, ctl.engine.volume + delta)));
   ctl.flash(`VOL ${Math.round(ctl.engine.volume * 100)}%`);
 };
 
-// pointerdown here too, for the same reason the keys use it.
-const side = (id, fn) =>
-  document.getElementById(id).addEventListener('pointerdown', (e) => { e.preventDefault(); fn(); });
+/**
+ * The dock's buttons behave like the faceplate's: they act on pointerdown,
+ * they answer, and they need the audio awake — the guide's preview and the
+ * volume readout are both useless without it.
+ */
+const dock = (id, fn, { wakesAudio = true } = {}) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    el.classList.add('is-down');
+    ctl.haptics.tap();
+    // Acts immediately, and never behind an await. The first version waited
+    // for the audio to unlock first, and unlocking leaves standby — so the
+    // power key came out of standby and then toggled itself straight back
+    // into it. Nothing on the dock needs the audio in order to act.
+    fn();
+    // The click does need it, though. On the first press of a session there
+    // is no audio yet, so it is woken and the click played once it exists —
+    // except on the power key, where waking the audio is precisely the
+    // opposite of what the press asked for.
+    if (ctl.clack('down') || !wakesAudio) return;
+    ctl.ensureAudio().then(() => ctl.clack('down')).catch(() => {});
+  });
+  const up = () => el.classList.remove('is-down');
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('blur', up);
+  el.addEventListener('contextmenu', (e) => e.preventDefault());
+  // These are buttons; a click is what a keyboard and a screen reader send.
+  el.addEventListener('click', (e) => { if (e.detail === 0) fn(); });
+};
 
-side('btnVolUp', () => nudge(0.08));
-side('btnVolDown', () => nudge(-0.08));
-side('btnPower', () => { ctl.haptics.tap(); ctl.togglePower(); });
-side('btnInfo', () => {
-  ctl.haptics.tap();
-  openGuide();
-});
+dock('dockVolUp', () => nudge(0.08));
+dock('dockVolDown', () => nudge(-0.08));
+dock('dockPower', () => ctl.togglePower(), { wakesAudio: false });
+dock('dockGuide', () => openGuide('tones'));
+dock('dockSet', () => openGuide('set'));
 
 /* ------------------------------ strobe exit ------------------------------ */
 
@@ -742,6 +798,7 @@ ctl.engine.onStateChange((state) => {
   }
 });
 
+ctl.syncDock();
 ctl.render();
 
 /* ------------------- offline cache and self-update ------------------- */

@@ -34,16 +34,6 @@
 <main class="stage">
   <div class="remote" id="remote">
 
-    <!-- moulded side buttons, as on the original unit -->
-    <div class="side side--l">
-      <button class="nub nub--sm" id="btnVolUp"   type="button" aria-label="Aumentar volume"></button>
-      <button class="nub nub--lg" id="btnVolDown" type="button" aria-label="Diminuir volume"></button>
-    </div>
-    <div class="side side--r">
-      <button class="nub nub--md" id="btnPower" type="button" aria-label="Liga / desliga"></button>
-      <button class="nub nub--sm" id="btnInfo"  type="button" aria-label="Ajuda e ajustes"></button>
-    </div>
-
     <div class="face">
       <div class="grille" aria-hidden="true"></div>
 
@@ -166,6 +156,34 @@
   </div>
 
   <p class="hint" id="hint">Toque em qualquer botão para ligar o áudio</p>
+
+  <!-- The way in to everything that is not a siren.
+       The original unit has these moulded into the case edges, and so did
+       this one — where they were a few millimetres of glass with no label,
+       holding the only door to the guide and the settings. A control you
+       cannot hit is not a control. -->
+  <nav class="dock" id="dock" aria-label="Controles do aparelho">
+    <button class="dock__btn" id="dockVolDown" type="button" aria-label="Diminuir volume">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 10l4 4M21 10l-4 4"/></svg>
+      <span>Vol &minus;</span>
+    </button>
+    <button class="dock__btn" id="dockVolUp" type="button" aria-label="Aumentar volume">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 8a6 6 0 0 1 0 8M19.5 5.5a9.5 9.5 0 0 1 0 13"/></svg>
+      <span>Vol +</span>
+    </button>
+    <button class="dock__btn" id="dockPower" type="button" aria-label="Liga e desliga">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9"/><path d="M6.5 6.8a8 8 0 1 0 11 0"/></svg>
+      <span>Liga</span>
+    </button>
+    <button class="dock__btn" id="dockGuide" type="button" aria-label="Abrir o guia">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.6C10.4 5.4 8.4 4.8 6 4.8c-.8 0-1.5.1-2 .2v13c.5-.1 1.2-.2 2-.2 2.4 0 4.4.6 6 1.8 1.6-1.2 3.6-1.8 6-1.8.8 0 1.5.1 2 .2V5c-.5-.1-1.2-.2-2-.2-2.4 0-4.4.6-6 1.8z"/><path d="M12 6.6v13"/></svg>
+      <span>Guia</span>
+    </button>
+    <button class="dock__btn" id="dockSet" type="button" aria-label="Abrir os ajustes">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+      <span>Ajustes</span>
+    </button>
+  </nav>
 </main>
 
 <!-- Só aparece quando uma versão nova chegou enquanto algo estava tocando:

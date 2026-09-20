@@ -111,9 +111,10 @@ const KEYS = [
   ]},
   { group: 'Controle', items: [
     ['STOP', 'Corta tudo na hora, inclusive um tom que ainda estava descendo.'],
-    ['Laterais esquerdas', 'Volume: a de cima aumenta, a de baixo diminui.'],
-    ['Lateral direita, maior', 'Liga / desliga. Em standby o painel escurece.'],
-    ['Lateral direita, menor', 'Abre este guia.'],
+    ['Vol − / Vol +', 'Volume principal, na barra embaixo do aparelho.'],
+    ['Liga', 'Liga e desliga. Em standby o painel escurece e tudo se cala.'],
+    ['Guia', 'Abre isto aqui.'],
+    ['Ajustes', 'Abre isto aqui já na aba de ajustes.'],
   ]},
 ];
 
@@ -237,6 +238,12 @@ function pageSettings() {
       <div><span>Manter a tela acesa</span>
         <small>Enquanto algo estiver tocando. Sem isso o iPhone bloqueia e o som para.</small></div>
       <button class="toggle" id="tWake" aria-pressed="${p.wakeLock}" aria-label="Manter a tela acesa"></button>
+    </div>
+    <div class="switchrow">
+      <div><span>Som dos botões</span>
+        <small>O "clack" a cada toque. Ele sai por fora das sirenes, então o
+           STOP não engole o próprio clique.</small></div>
+      <button class="toggle" id="tClack" aria-pressed="${p.clack}" aria-label="Som dos botões"></button>
     </div>
     <div class="switchrow">
       <div><span>Resposta tátil</span>
@@ -394,6 +401,7 @@ function wireSettings(root) {
     else if (ctl.isSounding) ctl.screenLock.enable();
   });
   toggle('#tHap', 'haptics', (v) => { ctl.haptics.enabled = v; if (v) ctl.haptics.tap(); });
+  toggle('#tClack', 'clack', (v) => { if (v) ctl.clack('down'); });
 
   root.querySelector('#bUpd').addEventListener('click', checkForUpdate);
 }

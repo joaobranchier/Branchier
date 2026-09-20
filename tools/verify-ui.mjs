@@ -48,10 +48,12 @@ const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile
  * difference between "something is loud" and "the right thing is sounding".
  */
 await ctx.addInitScript(() => {
-  window.__live = 0;
+  window.__live = 0;      // playing right now
+  window.__started = 0;   // ever started, which is how a 75 ms click is seen
   const start = AudioBufferSourceNode.prototype.start;
   AudioBufferSourceNode.prototype.start = function (...a) {
     window.__live++;
+    window.__started++;
     this.addEventListener('ended', () => { window.__live--; });
     return start.apply(this, a);
   };
@@ -167,7 +169,7 @@ await p.waitForTimeout(200);
 console.log('\n--- power toggles both ways ---');
 await p.locator('[data-tone="wail1"]').click();
 await p.waitForTimeout(400);
-await p.locator('#btnPower').click();
+await p.locator('#dockPower').click();
 await p.waitForTimeout(500);
 const off = await p.evaluate(() => ({
   lcd: document.getElementById('lcdTone').textContent,
@@ -175,13 +177,13 @@ const off = await p.evaluate(() => ({
   m: parseFloat(document.getElementById('meterFill').style.width) || 0,
 }));
 ok('power off -> standby + silence', off.standby && off.lcd === 'STANDBY' && off.m < 2, JSON.stringify(off));
-await p.locator('#btnPower').click();
+await p.locator('#dockPower').click();
 await p.waitForTimeout(400);
 ok('power on -> leaves standby',
   await p.evaluate(() => !document.getElementById('remote').classList.contains('is-standby')));
 
 console.log('\n--- volume readout actually appears ---');
-await p.locator('#btnVolDown').click();
+await p.locator('#dockVolDown').click();
 await p.waitForTimeout(250);
 const vtxt = (await p.locator('#lcdHz').textContent()).trim();
 ok('volume shown on the display', /^VOL \d+%$/.test(vtxt), vtxt);
@@ -377,7 +379,7 @@ console.log('\n--- the guide ---');
   const latchedBefore = await p.evaluate(() =>
     [...document.querySelectorAll('.key.is-on')].map((k) => k.dataset.act + ':' + (k.dataset.tone || k.dataset.eq || '')).sort().join(','));
 
-  await p.locator('#btnInfo').click();
+  await p.locator('#dockGuide').click();
   await p.waitForTimeout(500);
   ok('guide opens from the side key', await p.locator('#guide').isVisible());
   ok('four tabs', (await p.locator('.guide__tabs button').count()) === 4);
@@ -402,7 +404,7 @@ console.log('\n--- the guide ---');
   await p.waitForTimeout(400);
   await p.locator('[data-tone="wail1"]').click();
   await p.waitForTimeout(500);
-  await p.locator('#btnInfo').click();
+  await p.locator('#dockGuide').click();
   await p.waitForTimeout(400);
   await p.locator('[data-play="hilo"]').click();
   await p.waitForTimeout(700);
@@ -416,7 +418,7 @@ console.log('\n--- the guide ---');
   await p.waitForTimeout(400);
   await p.locator('[data-tone="wail1"]').click();
   await p.waitForTimeout(300);
-  await p.locator('#btnInfo').click();
+  await p.locator('#dockGuide').click();
   await p.waitForTimeout(400);
   await p.locator('[data-play="yelp"]').click();
   await p.waitForTimeout(700);
@@ -432,7 +434,7 @@ console.log('\n--- the guide ---');
     (await p.locator('[data-tone].is-on').count()) === 0);
 
   // Every tab renders.
-  await p.locator('#btnInfo').click();
+  await p.locator('#dockGuide').click();
   await p.waitForTimeout(300);
   for (const t of ['keys', 'how', 'set']) {
     await p.locator(`[data-tab="${t}"]`).click();
@@ -570,7 +572,7 @@ console.log('\n--- a tone cannot outlive the finger ---');
   // The guide's horn preview ends itself after a stab, and that ending used
   // to be a timer too.
   await stopAll();
-  await p.locator('#btnInfo').click();
+  await p.locator('#dockGuide').click();
   await p.waitForTimeout(400);
   await p.locator('[data-tab="tones"]').click();
   await p.waitForTimeout(400);
@@ -617,6 +619,75 @@ console.log('\n--- a tone cannot outlive the finger ---');
   ok('its own finger does', (await live()) === 0, `${await live()} voz(es)`);
 
   await stopAll();
+}
+
+console.log('\n--- the dock, and the key click ---');
+{
+  const live = () => p.evaluate(() => window.__live);
+  await p.locator('[data-act="stop"]').click();
+  await p.waitForTimeout(600);
+
+  // The guide and the settings used to be reachable only through buttons
+  // moulded into the case edges — a few millimetres of glass with no label.
+  // On a phone that is not a control, it is a decoration in front of a door.
+  ok('the side nubs are gone', (await p.locator('.nub, .side').count()) === 0);
+  ok('the dock has its five keys', (await p.locator('.dock__btn').count()) === 5);
+  const small = await p.locator('.dock__btn').evaluateAll((els) =>
+    els.filter((e) => e.getBoundingClientRect().height < 44).length);
+  ok('every dock key is big enough to hit', small === 0, `${small} pequeno(s) demais`);
+
+  await p.locator('#dockGuide').click();
+  await p.waitForTimeout(400);
+  ok('the dock opens the guide', !(await p.locator('#guide').evaluate((e) => e.hidden)));
+  ok('and lands on the tones tab',
+    (await p.locator('[data-tab="tones"]').getAttribute('aria-selected')) === 'true');
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(300);
+
+  await p.locator('#dockSet').click();
+  await p.waitForTimeout(400);
+  ok('and the settings key lands on settings',
+    (await p.locator('[data-tab="set"]').getAttribute('aria-selected')) === 'true');
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(300);
+
+  // The click has to be audible, and it has to be audible from the one key
+  // whose whole job is to silence everything: it is routed past voiceSum for
+  // exactly that reason, so pressing STOP still answers.
+  // Counted as starts, not as voices playing: a click is seventy-five
+  // milliseconds long and is over before any poll could catch it alive.
+  const started = () => p.evaluate(() => window.__started);
+  const clicksOn = async (sel) => {
+    const before = await started();
+    await p.locator(sel).click();
+    await p.waitForTimeout(250);
+    const after = await started();
+    await p.locator('[data-act="stop"]').click();
+    await p.waitForTimeout(400);
+    return after > before;
+  };
+  ok('a key answers with a click', await clicksOn('[data-act="mod"]'));
+  ok('STOP does not swallow its own click', await clicksOn('[data-act="stop"]'));
+  ok('a dock key answers too', await clicksOn('#dockVolUp'));
+
+  // And it can be switched off, for people who would rather it were not there.
+  await p.locator('#dockSet').click();
+  await p.waitForTimeout(450);
+  await p.locator('#tClack').click();
+  await p.waitForTimeout(300);
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(400);
+  ok('the click can be switched off', !(await clicksOn('[data-act="mod"]')));
+  await p.locator('#dockSet').click();
+  await p.waitForTimeout(450);
+  await p.locator('#tClack').click();
+  await p.waitForTimeout(300);
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(400);
+  ok('and back on', await clicksOn('[data-act="mod"]'));
+
+  await p.locator('[data-act="stop"]').click();
+  await p.waitForTimeout(600);
 }
 
 console.log('\n--- the timbre, measured through the real chain ---');
@@ -711,7 +782,7 @@ console.log('\n--- version and self-update ---');
 {
   // A build number nobody can see is a build number nobody can trust. This
   // row is how the answer to "is this the new version?" stops being a guess.
-  await p.locator('#btnInfo').click();
+  await p.locator('#dockGuide').click();
   await p.waitForTimeout(300);
   await p.locator('[data-tab="set"]').click();
   await p.waitForTimeout(350);

@@ -166,7 +166,7 @@ try {
   // rather than importing the file separately — a separate import can be
   // served fresh while the page keeps running the old one.
   await dismissWelcome();
-  await p.locator('#btnInfo').click();
+  await p.locator('#dockGuide').click();
   await p.waitForTimeout(300);
   await p.locator('[data-tab="set"]').click();
   await p.waitForTimeout(400);

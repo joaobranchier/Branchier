@@ -20,7 +20,7 @@
  */
 
 import { makeCeilingCurve } from './waves.js';
-import { renderStreetIR } from './render.js';
+import { renderStreetIR, renderClick } from './render.js';
 
 /** HIGH and BASS select one of four voicings. Pure tone shaping: the horn
  *  and driver response belong to the voice now, not to the master bus. */
@@ -182,6 +182,25 @@ export class AudioEngine {
     this.ceiling.curve = makeCeilingCurve();
     this.ceiling.oversample = '2x';
 
+    // --- the panel's own noise ------------------------------------------
+    // Joined to the master directly, past voiceSum and the tone stack. Two
+    // reasons: a key click is not a siren and has no business being shaped
+    // like one, and STOP mutes voiceSum for a moment — which would have
+    // swallowed the click of the very key that did it.
+    this.ui = ctx.createGain();
+    this.ui.gain.value = 0.3;
+    this.ui.connect(this.master);
+
+    const toBuffer = (r) => {
+      const b = ctx.createBuffer(1, r.data.length, ctx.sampleRate);
+      b.getChannelData(0).set(r.data);
+      return b;
+    };
+    this._clicks = {
+      down: toBuffer(renderClick(ctx.sampleRate, 'down')),
+      up: toBuffer(renderClick(ctx.sampleRate, 'up')),
+    };
+
     this.analyser = ctx.createAnalyser();
     this.analyser.fftSize = 256;
     this.analyser.smoothingTimeConstant = 0.72;
@@ -235,6 +254,23 @@ export class AudioEngine {
       ramp ? param.setTargetAtTime(value, t, ramp) : (param.value = value);
     set(this.lowShelf.gain, v.low);
     set(this.highShelf.gain, v.high);
+  }
+
+  /**
+   * A key click. `down` on the way in, `up` for a momentary key letting go.
+   *
+   * Deliberately fire-and-forget: it must never be able to throw into a key
+   * press, and it must never wait for anything, because the whole value of
+   * the sound is that it lands at the same instant as the finger.
+   */
+  click(kind = 'down') {
+    if (!this.ready || !this._clicks?.[kind]) return;
+    try {
+      const src = this.ctx.createBufferSource();
+      src.buffer = this._clicks[kind];
+      src.connect(this.ui);
+      src.start();
+    } catch { /* a click is never worth interrupting a siren for */ }
   }
 
   /** Peak level 0..1, for the faceplate meter. */

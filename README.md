@@ -24,7 +24,7 @@ vermelho/azul cai sozinha em qual metade da varredura o pixel está mais perto.
 
 ## O guia embutido
 
-O botão lateral direito de baixo abre um guia com quatro abas: **Sirenes**,
+A barra embaixo do aparelho abre um guia com quatro abas: **Sirenes**,
 **Botões**, **Como funciona** e **Ajustes**.
 
 Cada sirene tem um cartão com o gráfico da sua varredura, um perfil comparativo
@@ -106,7 +106,8 @@ botão **Verificar**, para o caso de você querer a resposta agora.
 | **LMB** | Giroflex vermelho/azul piscando **atrás** do controle — os botões continuam funcionando. Vem desligado e só acende aqui: nenhuma sirene liga a luz sozinha. |
 | **LIGHT** | Luz branca em tela cheia (serve de lanterna). Toque para sair. |
 | **STOP** | Corta tudo na hora. |
-| Laterais | Volume (esquerda), liga/desliga e ajustes (direita). |
+| Qualquer tecla | Responde com um *clack*. Ele sai por fora das sirenes, então o STOP não engole o próprio clique; dá para desligar em Ajustes. |
+| **Barra inferior** | Volume, liga/desliga, guia e ajustes. Ficavam moldados nas bordas da caixa, como na unidade original — três milímetros de vidro sem rótulo, segurando a única porta para o guia. Controle em que não se acerta não é controle. |
 
 Tudo também funciona por teclado: Tab para navegar, Enter ou Espaço para
 acionar. Nos botões momentâneos o som dura enquanto a tecla fica pressionada.
@@ -269,7 +270,7 @@ navegador se acha no direito de reaproveitar a cópia. O CI estava certo.
 
 ```
 63/63 checks passed      (áudio)
-87/87 UI checks passed   (navegador)
+98/98 UI checks passed   (navegador)
 7/7 update checks passed (publicação)
 ```
 

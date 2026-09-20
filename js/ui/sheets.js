@@ -70,6 +70,6 @@ export function openWelcome() {
     <button class="btn" data-close>Entendi, vamos lá</button>
     <button class="btn btn--ghost" id="bGuide">Abrir o guia dos tons</button>
     <p style="margin-top:14px"><small>O guia explica cada botão e cada sirene, com
-       gráficos de como o som se comporta. Fica no botão lateral direito de baixo.</small></p>
+       gráficos de como o som se comporta. Fica na barra embaixo do aparelho.</small></p>
   `);
 }

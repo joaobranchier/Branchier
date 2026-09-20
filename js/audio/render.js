@@ -399,3 +399,49 @@ export function renderStreetIR(sr, seconds = 0.5) {
   chain(out, lowpass(sr, 3800, 0.8), highpass(sr, 220, 0.7));
   return normalize(out, 0.5);
 }
+
+/* ------------------------------------------------------------------ *
+ * The panel's own noise
+ * ------------------------------------------------------------------ */
+
+/**
+ * The click a key makes, which is a different kind of sound from a siren.
+ *
+ * Nothing about it is a siren, so nothing about it goes through a siren's
+ * radiator: it is a moulded key on a plastic case, and what you hear is the
+ * case answering underneath, the cap's own short ring, and — the part that
+ * makes it read as a thing touching a thing rather than as a beep — about
+ * two milliseconds of contact scratch on top of both.
+ *
+ * Modal synthesis, because that is what this is: a handful of decaying
+ * sinusoids is an exact description of a small rigid object that has just
+ * been struck, and it costs a few thousand samples to render once.
+ */
+export function renderClick(sr, kind = 'down') {
+  const firm = kind === 'down';
+  const n = Math.round(sr * (firm ? 0.075 : 0.055));
+  const out = new Float32Array(n);
+  const noise = pinkNoise(rng(firm ? 0xc1ac : 0x70ac));
+
+  // [hz, decay seconds, amplitude]. The release is duller and shorter: a key
+  // coming back up is the spring, not the stop.
+  const modes = firm
+    ? [[196, 0.034, 0.50], [880, 0.018, 0.40], [1760, 0.009, 0.55], [3300, 0.004, 0.26]]
+    : [[173, 0.026, 0.42], [760, 0.013, 0.30], [1500, 0.006, 0.28]];
+
+  const scratchTau = firm ? 0.0016 : 0.0011;
+  const scratchAmp = firm ? 0.55 : 0.30;
+
+  for (let i = 0; i < n; i++) {
+    const t = i / sr;
+    let v = 0;
+    for (const [f, tau, a] of modes) v += a * Math.exp(-t / tau) * Math.sin(TAU * f * t);
+    out[i] = v + noise() * scratchAmp * Math.exp(-t / scratchTau);
+  }
+
+  // A phone speaker turns everything above this into hiss, and everything
+  // below it into nothing at all.
+  chain(out, highpass(sr, 110, 0.7), lowpass(sr, 7000, 0.7));
+  fadeEdges(out, sr, 1.2);
+  return { data: normalize(out, firm ? 0.9 : 0.5), loopStart: 0 };
+}

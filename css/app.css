@@ -84,6 +84,59 @@ body {
 }
 .hint[data-state="on"] { color: #8fd6a8; }
 
+/* ------------------------------- dock ------------------------------- */
+
+/* Sized in px, not em: it sits outside .remote and must stay a comfortable
+   target no matter how far the faceplate has scaled itself down. */
+.dock {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  max-width: 470px;
+  padding: 0 4px;
+}
+
+.dock__btn {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 54px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 2px;
+  border: 1px solid #2a3134;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #242a2d, #171b1d);
+  color: #aab6ba;
+  font: inherit;
+  font-size: 10.5px;
+  letter-spacing: .02em;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 2px 6px rgba(0, 0, 0, .5);
+}
+
+.dock__btn svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dock__btn:active,
+.dock__btn.is-down {
+  background: #323a3e;
+  color: #eef3f5;
+  transform: translateY(1px);
+}
+
+.dock__btn.is-on { color: var(--amber); border-color: rgba(255, 176, 46, .45); }
+
+.dock__btn:focus-visible { outline: 2px solid var(--lcd-ink); outline-offset: 2px; }
+
 /* ---------------------------- update notice ---------------------------- */
 
 /* Above the lightbar, the sheets and the guide — everything. It is the one
@@ -123,7 +176,7 @@ body {
 
 .remote {
   /* The single scaling knob. Everything else follows from it. */
-  font-size: clamp(5.4px, min(2.28vw, 1.02vh), 15px);
+  font-size: clamp(5.4px, min(2.28vw, 0.93vh), 15px);
   position: relative;
   width: 42em;
   padding: 1.5em;
@@ -139,20 +192,6 @@ body {
 /* Standby: the panel goes dark but the case still reads as a physical object. */
 .remote.is-standby .face { opacity: .34; filter: saturate(.25); transition: opacity .25s, filter .25s; }
 .remote.is-standby .lcd { opacity: .6; }
-
-/* moulded buttons on the case edges */
-.side { position: absolute; top: 12em; display: flex; flex-direction: column; gap: 1.1em; }
-.side--l { left: -.55em;  align-items: flex-start; }
-.side--r { right: -.55em; align-items: flex-end; }
-
-.nub {
-  width: .62em; padding: 0; border: 0;
-  border-radius: .35em;
-  background: linear-gradient(90deg, #4a5052, #2a2f31);
-  box-shadow: inset 0 .1em .1em rgba(255,255,255,.22), 0 .1em .2em rgba(0,0,0,.5);
-}
-.nub--sm { height: 2.4em; } .nub--md { height: 3.4em; } .nub--lg { height: 4.6em; }
-.nub:active { filter: brightness(1.45); }
 
 .face { display: flex; flex-direction: column; gap: 1.5em; }
 
