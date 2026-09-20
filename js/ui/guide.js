@@ -1,5 +1,5 @@
 /**
- * guide.js — the full-screen guide: every tone and every key, explained.
+ * guide.js — SireFlex's guide: every tone and every key, explained.
  *
  * Four tabs, one place. The illustrations come from diagrams.js, which draws
  * them from the same tone specs the synthesiser reads, so nothing here can

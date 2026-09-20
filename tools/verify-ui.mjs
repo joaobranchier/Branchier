@@ -253,6 +253,34 @@ console.log('\n--- keys are operable from a keyboard ---');
   await p.locator('#keyStop').click();
 }
 
+console.log('\n--- branding ---');
+{
+  const brand = await p.evaluate(() => {
+    const b = document.querySelector('.brand');
+    if (!b) return null;
+    const r = b.getBoundingClientRect();
+    const rem = document.querySelector('.remote').getBoundingClientRect();
+    const mark = b.querySelector('.brand__mark use');
+    const strokes = [...document.querySelectorAll('#i-logo path')].map((x) => x.getAttribute('stroke'));
+    return {
+      text: b.innerText.replace(/\s+/g, ''),
+      offset: Math.abs((r.left + r.width / 2) - (rem.left + rem.width / 2)),
+      usesMark: mark?.getAttribute('href') === '#i-logo',
+      markHidden: b.querySelector('.brand__mark')?.getAttribute('aria-hidden') === 'true',
+      strokes,
+      title: document.title,
+    };
+  });
+  ok('the name is on the panel', brand?.text === 'SireFlex', brand?.text);
+  ok('it is centred on the unit', brand.offset < 1, `${brand.offset.toFixed(1)}px off`);
+  ok('the mark is drawn', brand.usesMark);
+  ok('the mark is hidden from screen readers', brand.markHidden,
+     'the wordmark beside it already says the name');
+  ok('the mark carries both lightbar colours', brand.strokes.length === 2
+     && brand.strokes[0] !== brand.strokes[1], brand.strokes.join(' / '));
+  ok('the document is titled SireFlex', brand.title === 'SireFlex', brand.title);
+}
+
 console.log('\n--- the lightbar never comes on by itself ---');
 {
   await p.locator('#keyStop').click();
@@ -340,7 +368,7 @@ console.log('\n--- the guide ---');
   await p.locator('#sVol').evaluate((e) => { e.value = 40; e.dispatchEvent(new Event('input', { bubbles: true })); });
   await p.waitForTimeout(200);
   ok('volume slider in the guide applies',
-    Math.abs((await p.evaluate(() => JSON.parse(localStorage.getItem('sirenremote.v1')).volume)) - 0.4) < 0.01);
+    Math.abs((await p.evaluate(() => JSON.parse(localStorage.getItem('sireflex.v1')).volume)) - 0.4) < 0.01);
   await p.locator('.guide__close').click();
   await p.waitForTimeout(300);
 }

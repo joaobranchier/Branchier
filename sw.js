@@ -1,5 +1,5 @@
 /**
- * sw.js — offline cache.
+ * sw.js — offline cache for SireFlex.
  *
  * The whole app is a handful of small text files and four PNGs, so it is
  * cached outright on install. Once installed the simulator never needs the
@@ -7,7 +7,7 @@
  * where there is signal.
  */
 
-const VERSION = 'siren-remote-v3';
+const VERSION = 'sireflex-v4';
 const SHELL = [
   './',
   './index.html',

@@ -1,7 +1,7 @@
 {
-  "name": "Siren Remote Simulator",
-  "short_name": "Siren Remote",
-  "description": "Controlador de sirene e air horn com tons sintetizados ao vivo, calibrados pelas especificações reais de fabricante.",
+  "name": "SireFlex — Simulador de Sirene",
+  "short_name": "SireFlex",
+  "description": "Controlador de sirene, air horn e giroflex com todos os tons sintetizados ao vivo, calibrados pelas especificações reais de fabricante.",
   "lang": "pt-BR",
   "start_url": "./index.html",
   "scope": "./",
@@ -9,10 +9,29 @@
   "orientation": "portrait",
   "background_color": "#0d0f11",
   "theme_color": "#101214",
-  "categories": ["entertainment", "utilities", "music"],
+  "categories": [
+    "entertainment",
+    "utilities",
+    "music"
+  ],
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }

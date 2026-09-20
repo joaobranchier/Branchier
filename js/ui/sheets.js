@@ -36,8 +36,9 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 export function openWelcome() {
   const needsInstall = isIOS() && !isStandalone();
   open(`
-    <h2>Siren Remote</h2>
-    <p>Um controlador de sirene completo, com todos os tons <strong>sintetizados ao vivo</strong>
+    <h2>SireFlex</h2>
+    <p><strong>Sire</strong>ne + giro<strong>flex</strong>: um controlador completo, com todos
+       os tons <strong>sintetizados ao vivo</strong>
        no seu aparelho — nada de arquivos de áudio. Cada tom foi calibrado pelas
        especificações publicadas dos fabricantes: as faixas de frequência e as
        taxas de varredura são as de verdade, não aproximações de ouvido.</p>

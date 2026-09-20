@@ -7,7 +7,7 @@
 
 /* --------------------------- persistence --------------------------- */
 
-const KEY = 'sirenremote.v1';
+const KEY = 'sireflex.v1';
 
 /** localStorage throws outright in Lockdown Mode and private windows. */
 export function loadPrefs(defaults) {

@@ -1,7 +1,7 @@
 {
-  "name": "siren-remote-simulator",
+  "name": "sireflex",
   "version": "1.0.0",
-  "description": "Simulador de controlador de sirene e air horn — PWA instalável no iPhone, com todos os tons sintetizados ao vivo pela Web Audio API.",
+  "description": "SireFlex — simulador de controlador de sirene, air horn e giroflex. PWA instalável no iPhone, com todos os tons sintetizados ao vivo pela Web Audio API.",
   "private": true,
   "type": "module",
   "scripts": {

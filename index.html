@@ -2,12 +2,12 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<title>Siren Remote — Simulador de Controlador de Sirene</title>
+<title>SireFlex</title>
 
 <!-- viewport-fit=cover lets the faceplate run under the notch and home bar;
      user-scalable=no stops a double-tap on a button from zooming the page. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="description" content="Controlador de sirene e air horn sintetizado em tempo real, com tons calibrados pelas especificações reais de fabricante. Roda no iPhone sem App Store.">
+<meta name="description" content="SireFlex — controlador de sirene e air horn sintetizado em tempo real, com tons calibrados pelas especificações reais de fabricante. Roda no iPhone sem App Store.">
 <meta name="theme-color" content="#101214">
 <meta name="color-scheme" content="dark">
 
@@ -15,7 +15,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Siren Remote">
+<meta name="apple-mobile-web-app-title" content="SireFlex">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="icon" href="icons/icon-192.png" sizes="192x192">
 <link rel="manifest" href="manifest.webmanifest">
@@ -46,6 +46,14 @@
 
     <div class="face">
       <div class="grille" aria-hidden="true"></div>
+
+      <!-- Silkscreened on the bezel, the way a real siren head is branded. -->
+      <div class="brand">
+        <svg class="brand__mark" viewBox="0 0 72 44" aria-hidden="true">
+          <use href="#i-logo"/>
+        </svg>
+        <span class="brand__name">Sire<b>Flex</b></span>
+      </div>
 
       <!-- ---------------------- status display ---------------------- -->
       <div class="lcd" id="lcd">
@@ -161,7 +169,7 @@
 <!-- ============================ guide ============================ -->
 <div class="guide" id="guide" hidden>
   <header class="guide__bar">
-    <h2 class="guide__title">Guia</h2>
+    <h2 class="guide__title">Guia do SireFlex</h2>
     <button class="guide__close" type="button" aria-label="Fechar o guia">Fechar</button>
   </header>
   <nav class="guide__tabs" role="tablist"></nav>
@@ -195,6 +203,15 @@
       <path d="M6 13h4l6-5v18l-6-5H6z"/>
       <path d="M21 12l8 10M29 12l-8 10" stroke-width="2.4" stroke-linecap="round" fill="none"/>
     </symbol>
+    <!-- SireFlex: the siren's own sweep, split into the lightbar's two
+         colours. One shape that says both halves of the name. -->
+    <symbol id="i-logo" viewBox="0 0 72 44">
+      <path d="M6 34 L22 11 L36 34" fill="none" stroke="#e2202a"
+            stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M36 34 L50 11 L66 34" fill="none" stroke="#2f5cf0"
+            stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+
     <!-- AIR HORN: a pair of trumpets with the blast coming out -->
     <symbol id="i-horn" viewBox="0 0 64 44">
       <path d="M6 15h13l14-8v14l-14-3H6zM6 26h13l14 5v9l-14-8H6z"/>

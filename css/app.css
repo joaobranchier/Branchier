@@ -1,5 +1,5 @@
 /* =====================================================================
-   Siren Remote Simulator — faceplate
+   SireFlex — faceplate
    ---------------------------------------------------------------------
    Everything inside .remote is sized in em, and .remote's font-size is the
    only thing tied to the viewport. That makes the whole unit scale as one
@@ -592,3 +592,28 @@ body.is-locked { overflow: hidden; }
 }
 .guide .field select { flex: 1.2; }
 .guide .sel--inline { flex: none; }
+
+/* ====================================================================
+   Brand
+   ==================================================================== */
+
+.brand {
+  display: flex; align-items: center; justify-content: center;
+  gap: .7em;
+  margin: -.2em 0 .1em;
+}
+.brand__mark {
+  width: 4em; height: 2.45em;
+  /* The mark carries its own two colours, so it must not inherit one. */
+  flex: none;
+}
+.brand__name {
+  font-size: 1.5em;
+  font-weight: 400;
+  letter-spacing: .1em;
+  /* Same grey as the keys: this reads as printing on the panel, not as UI. */
+  color: #aab2ae;
+  text-transform: none;
+  line-height: 1;
+}
+.brand__name b { font-weight: 800; color: #e6ebe6; letter-spacing: .08em; }
