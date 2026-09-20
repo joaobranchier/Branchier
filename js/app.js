@@ -3,7 +3,7 @@
  */
 
 import { AudioEngine } from './audio/engine.js';
-import { createVoice } from './audio/voices.js';
+import { createVoice, prewarm } from './audio/voices.js';
 import { TONES, AUTO_CYCLE, MOD_STEPS } from './audio/tones.js';
 import { Strobe } from './ui/strobe.js';
 import { injectWaveIcons } from './ui/waveicons.js';
@@ -73,6 +73,11 @@ class Controller {
   async ensureAudio() {
     if (!this.engine.ready) {
       await this.engine.unlock();
+      // Every tone is computed, not sampled, so the first press of each one
+      // would otherwise pay for its render. Doing them all in idle time
+      // after the first touch means none of them ever does. Warming up is a
+      // convenience and must never be able to stop a key from sounding.
+      try { prewarm(this.engine, TONES, TONES.wail1); } catch { /* renders on demand */ }
       document.getElementById('hint').textContent = 'Pronto — áudio ativo';
       document.getElementById('hint').dataset.state = 'on';
       setTimeout(() => { document.getElementById('hint').style.opacity = '0'; }, 1800);

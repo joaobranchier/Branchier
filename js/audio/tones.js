@@ -176,14 +176,18 @@ export const TONES = {
     id: 'mech',
     label: 'Q-SIREN',
     caption: 'Sirene mecânica',
-    blurb: 'A eletromecânica de bombeiro. Um rotor de 14 portas cortando ar: sobe devagar conforme o motor ganha rotação e desce sozinha por muito tempo, em ponto morto.',
-    spec: 'Federal Signal Q2B · rotor 14 portas · 400–800 Hz · 123 dB @ 3 m',
+    blurb: 'A eletromecânica de bombeiro. Um rotor de 14 portas cortando ar: leva dois a três segundos para ganhar rotação e depois desce sozinha por quase meio minuto, em roda-livre.',
+    spec: 'Federal Signal Q2B · rotor 14 portas · 400–800 Hz · partida 2–3 s',
     kind: 'mechanical',
     ports: 14,                 // f = (rpm / 60) * ports
     idleRpm: 0,
     runRpm: 3430,              // (3430/60)*14 = 800 Hz peak fundamental
-    spinUpS: 8.5,              // motor loaded against the rotor
-    coastDownS: 19.0,          // the coaster clutch is why this takes so long
+    // Published behaviour: two to three seconds of wind-up before full
+    // speed, then a coast of thirty seconds to a minute on the clutch. The
+    // first pass had these at 8.5 and 19 — too slow to start, and cut short
+    // in the one place the Q is actually famous for lasting.
+    spinUpS: 2.6,
+    coastDownS: 30.0,
     wave: 'mech',
     airNoise: 0.30,
     gain: 0.88,

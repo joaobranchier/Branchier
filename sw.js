@@ -7,7 +7,7 @@
  * where there is signal.
  */
 
-const VERSION = 'sireflex-v4';
+const VERSION = 'sireflex-v5';
 const SHELL = [
   './',
   './index.html',
@@ -18,6 +18,8 @@ const SHELL = [
   './js/audio/engine.js',
   './js/audio/voices.js',
   './js/audio/waves.js',
+  './js/audio/dsp.js',
+  './js/audio/render.js',
   './js/audio/tones.js',
   './js/ui/strobe.js',
   './js/ui/guide.js',

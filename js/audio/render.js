@@ -19,6 +19,22 @@ import {
 
 const MAX_H = 48;
 
+/**
+ * Harmonic tables for a range of duty cycles, computed once.
+ *
+ * The reed's open fraction changes continuously with pressure, and building
+ * a fresh table every sample meant fifty sines per sample purely to describe
+ * the shape. Quantising the duty into small steps is inaudible — the change
+ * across one step is far below what the ear resolves — and takes the render
+ * from two hundred milliseconds to ten.
+ */
+const DUTY_STEPS = 128;
+const dutyTables = [];
+function dutyHarmonics(duty) {
+  const i = Math.max(0, Math.min(DUTY_STEPS - 1, Math.round(duty * DUTY_STEPS)));
+  return dutyTables[i] ?? (dutyTables[i] = pulseHarmonics(i / DUTY_STEPS, MAX_H));
+}
+
 /* ------------------------------------------------------------------ *
  * Sweep shape
  * ------------------------------------------------------------------ */
@@ -177,7 +193,7 @@ export function renderHorn(spec, sr) {
         // fraction narrows and the tone brightens through the attack rather
         // than merely getting louder.
         const duty = 0.5 - 0.16 * p;
-        const amps = pulseHarmonics(duty, MAX_H);
+        const amps = dutyHarmonics(duty);
 
         // The reed is never quite periodic, and that is the rasp.
         ph += (TAU * f / sr) * (1 + jitter() * 0.003);
@@ -226,25 +242,25 @@ export function renderHorn(spec, sr) {
 
 /**
  * A Q-siren has no electronics in it at all: a motor spins a 14-port rotor
- * past a stator, and each port lines up once per revolution to let a slug of
- * air through. So the tone is a very narrow pulse train, and the air being
- * chopped is as much of the sound as the pitch is — which is why it reads as
- * a machine moving air rather than as a loudspeaker.
+ * past a stator, and each alignment lets a slug of air through. The air
+ * being chopped is as much of the sound as the pitch is, which is why it
+ * reads as a machine moving air rather than as a loudspeaker.
+ *
+ * Only the steady state is rendered. The wind-up and the long coast-down are
+ * playback-rate ramps over this loop, which is both cheaper — a thirty
+ * second coast would otherwise be a six megabyte buffer — and truer, since
+ * on a real siren every part of the spectrum scales with rotor speed
+ * together, which is exactly what changing the playback rate does.
  */
-export function renderMech(spec, sr) {
+export function renderMechSteady(spec, sr) {
   const peak = (spec.runRpm / 60) * spec.ports;
-  const idle = (60 / 60) * spec.ports;
-  const spin = spec.spinUpS;
-  const coast = spec.coastDownS;
 
-  const nA = Math.round(sr * spin);
-  // Whole rotor revolutions at full speed, so the steady loop closes cleanly.
-  const nL = Math.round(Math.round((0.6 * peak)) * sr / peak);
-  const nR = Math.round(sr * coast);
-  const xf = Math.round(sr * 0.006);
+  // A whole number of rotor revolutions, so the loop closes on itself.
+  const revs = Math.max(8, Math.round(0.35 * peak));
+  const n = Math.round((revs * sr) / peak);
+  const xf = Math.min(Math.round(sr * 0.008), n >> 3);
 
-  const body = new Float32Array(nA + nL + xf);
-  const rel = new Float32Array(nR);
+  const raw = new Float32Array(n + xf);
   const nyq = sr * 0.5;
   const rand = rng(0x9f1c33);
   const noise = pinkNoise(rand);
@@ -253,75 +269,37 @@ export function renderMech(spec, sr) {
   // the open area grows and shrinks linearly as they sweep past each other:
   // a triangle, asymmetric because the rotor only turns one way.
   //
-  // But the *radiated* sound is not that triangle. Sound pressure comes from
+  // But the radiated sound is not that triangle. Sound pressure comes from
   // the rate of change of volume flow, and the derivative of a triangle is a
   // square — asymmetric here, so rich in both odd and even harmonics, which
-  // is exactly how the real thing is described. Using the triangle itself
-  // gave a fundamental and almost nothing above it; a Q is not a soft sound.
-  // The triangle is still the right shape for gating the air, because that
-  // is the flow rather than the pressure.
+  // is exactly how the real thing is described. Rendering the triangle
+  // itself gave a fundamental and almost nothing above it, and a Q is not a
+  // soft sound. The triangle still gates the air, because that part is the
+  // flow rather than the pressure.
   const R = 0.35;
   const amps = pulseHarmonics(R, MAX_H);
-
-  // The motor is not audible until the rotor is actually chopping; starting
-  // the curve at a couple of hertz just wrote inaudible rumble into the head
-  // of the buffer.
-  const start = 70;
-  const rpmCurve = (t) => {
-    const knee = spin * 0.42;
-    if (t <= knee) return start * Math.pow(peak * 0.72 / start, t / knee);
-    if (t < spin) return peak * 0.72 * Math.pow(peak / (peak * 0.72), (t - knee) / (spin - knee));
-    return peak;
-  };
-
-  /** Ideal open area at a phase, for gating the air. */
   const openAt = (phase) => {
     const u = phase / TAU;
     return u < R ? u / R : 1 - (u - R) / (1 - R);
   };
 
   let ph = 0;
-  for (let i = 0; i < body.length; i++) {
-    const f = rpmCurve(i / sr);
-    ph += TAU * f / sr;
+  for (let i = 0; i < raw.length; i++) {
+    ph += TAU * peak / sr;
     if (ph > TAU) ph -= TAU;
-    const pulse = harmonicSum(ph, amps, f, nyq);
-    const speed = Math.min(1, f / peak);
     // The rotor chops a continuous airstream, so the turbulence is gated at
     // the port rate rather than sitting underneath as a steady hiss. That
     // chopped air is most of what makes a Q sound like a machine moving air
     // instead of a loudspeaker playing a note.
-    const air = noise() * openAt(ph) * spec.airNoise * (1.9 - 0.7 * speed);
-    body[i] = (pulse * (0.35 + 0.65 * speed) + air) * Math.min(1, 0.2 + i / (sr * 1.2));
+    raw[i] = harmonicSum(ph, amps, peak, nyq) + noise() * openAt(ph) * spec.airNoise * 1.6;
   }
 
-  for (let i = 0; i < rel.length; i++) {
-    const k = i / rel.length;
-    // Coasts down through the audible range and fades there; it does not
-    // wind all the way to a standstill in front of you.
-    const f = peak * Math.pow(90 / peak, k);
-    ph += TAU * f / sr;
-    if (ph > TAU) ph -= TAU;
-    const pulse = harmonicSum(ph, amps, f, nyq);
-    const speed = Math.min(1, f / peak);
-    const air = noise() * openAt(ph) * spec.airNoise * (1.9 - 0.7 * speed);
-    const env = Math.pow(1 - k, 0.8);
-    rel[i] = (pulse * (0.35 + 0.65 * speed) + air) * env;
-  }
-
-  chain(body, highpass(sr, 180, 0.7));
-  chain(rel, highpass(sr, 180, 0.7));
-
-  // Seal only the wrap; the spin-up ahead of it is played once and its join
-  // into the loop must stay exactly as it was rendered.
-  const out = body.slice(0, nA + nL);
-  sealLoopTail(out, nA, xf);
-  normalize(out, 0.86);
-  normalize(rel, 0.7);
-  fadeEdges(rel, sr, 6);
-  for (let i = 0; i < Math.round(sr * 0.003); i++) out[i] *= i / Math.round(sr * 0.003);
-
-  return { data: out, loopStart: nA, release: rel };
+  chain(raw, highpass(sr, 180, 0.7));
+  return {
+    data: normalize(crossfadeLoop(raw, sr, (xf / sr) * 1000), 0.86),
+    loopStart: 0,
+    peakHz: peak,
+  };
 }
 
 /* ------------------------------------------------------------------ *

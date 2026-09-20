@@ -149,11 +149,22 @@ export function squareHarmonics(count) {
  * note, which is a large part of why naive digital sirens sound cheap.
  */
 export function harmonicSum(phase, amps, f0, nyquist) {
-  let acc = 0;
   const maxK = Math.min(amps.length - 1, Math.floor(nyquist / Math.max(1, f0)));
-  for (let k = 1; k <= maxK; k++) {
-    if (amps[k] === 0) continue;
-    acc += amps[k] * Math.sin(phase * k);
+  if (maxK < 1) return 0;
+
+  // Chebyshev recurrence: sin(k.p) = 2cos(p).sin((k-1)p) - sin((k-2)p).
+  // One sine and one cosine per sample instead of one sine per harmonic,
+  // which is what makes rendering a thirty-second coast-down with fifty
+  // partials fast enough to do on a phone while someone holds a key.
+  const c2 = 2 * Math.cos(phase);
+  let prev = 0;
+  let cur = Math.sin(phase);
+  let acc = amps[1] * cur;
+  for (let k = 2; k <= maxK; k++) {
+    const next = c2 * cur - prev;
+    prev = cur;
+    cur = next;
+    acc += amps[k] * cur;
   }
   return acc;
 }

@@ -48,6 +48,38 @@ await p.locator('.btn[data-close]').click();
 await p.waitForTimeout(200);
 const meter = () => p.evaluate(() => parseFloat(document.getElementById('meterFill').style.width) || 0);
 
+console.log('\n--- every tone actually makes a sound ---');
+{
+  // The tones are rendered, not sampled, and the render is warmed up inside
+  // the audio unlock. A throw in there once took the very first key press
+  // down with it and left the panel silent while looking alive, so each one
+  // is played and listened to.
+  for (const t of ['wail1', 'wail2', 'yelp', 'phaser', 'hilo', 'wawa']) {
+    await p.locator(`[data-tone="${t}"]`).click();
+    await p.waitForTimeout(700);
+    ok(`${t} sounds`, (await meter()) > 10, `${(await meter()).toFixed(0)}%`);
+    await p.locator('#keyStop').click();
+    await p.waitForTimeout(250);
+  }
+
+  // The horn is momentary, so it has to be held to be heard.
+  const hb = await p.locator('#keyHorn').boundingBox();
+  await p.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await p.mouse.down();
+  await p.waitForTimeout(500);
+  ok('air horn sounds', (await meter()) > 10, `${(await meter()).toFixed(0)}%`);
+  await p.mouse.up();
+  await p.waitForTimeout(700);
+
+  await p.locator('#keyRumble').click();
+  await p.locator('[data-tone="wail1"]').click();
+  await p.waitForTimeout(700);
+  ok('rumble layer sounds under a siren', (await meter()) > 10, `${(await meter()).toFixed(0)}%`);
+  await p.locator('#keyRumble').click();
+  await p.locator('#keyStop').click();
+  await p.waitForTimeout(300);
+}
+
 console.log('\n--- STOP kills the Q-siren immediately ---');
 await p.locator('[data-tone="mech"]').click();
 await p.waitForTimeout(6000);

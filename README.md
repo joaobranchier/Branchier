@@ -15,8 +15,9 @@ não tem versão para iOS. O layout foi recriado; o áudio foi feito do zero.
 forma que aparece nos botões de tom — cortada ao meio nas duas cores do
 giroflex. Um desenho que diz as duas metades do nome.
 
-Ela é serigrafada no centro do painel, como se faz numa central de sirene de
-verdade, e é o mesmo desenho do ícone da tela de início. O ícone é gerado por
+Ela fica no meio do painel, entre as duas teclas redondas — onde vai o
+emblema do fabricante numa central de sirene de verdade — e é o mesmo desenho
+do ícone da tela de início. O ícone é gerado por
 `python3 tools/make-icons.py`, que escreve os PNGs à mão — traçado por campo de
 distância, o que dá pontas e junções arredondadas de graça, e a divisão
 vermelho/azul cai sozinha em qual metade da varredura o pixel está mais perto.
@@ -102,31 +103,52 @@ acionar. Nos botões momentâneos o som dura enquanto a tecla fica pressionada.
 
 ## Como o som é feito
 
-As sirenes de varredura usam um oscilador de baixa frequência modulando a
-frequência de **dois** osciladores portadores afinados com alguns hertz de
-diferença. Essa diferença reproduz o batimento de um par de alto-falantes
-reais — é um detalhe pequeno que responde por boa parte do realismo.
+Não existe um único arquivo de áudio neste projeto. Cada tom é **calculado
+amostra a amostra** e entregue ao navegador como um buffer pronto.
 
-```
-LFO ─► profundidade (Hz) ─┬─► portadoraA.frequency   (base = centro)
-                          └─► portadoraB.frequency   (base = centro + desvio)
-```
+Isso não é capricho: as coisas que tornam esses sons reconhecíveis não cabem
+num grafo de osciladores. Uma buzina de ar é uma **palheta cortando o fluxo**,
+e o que se ouve como aspereza é ela não repetir exatamente igual a cada
+período. Uma Q-siren é um **rotor cortando ar**, e o ruído dela é modulado
+pelo próprio fluxo que gera o tom — não é chiado por baixo, é o ar sendo
+picado. Nada disso se liga com fios; tem que ser computado.
 
-Depois tudo passa por uma simulação do próprio alto-falante de sirene: corte
-grave, realce em torno de 1,6 kHz e corte agudo — a resposta de um driver de
-compressão com corneta. Sem esse estágio o resultado soa como um sintetizador
-tocando uma varredura; com ele, soa como uma sirene.
+**Sirenes eletrônicas** são um gerador de tom empurrando um driver de
+compressão. A onda é quadrada, não senoidal — daí o terceiro harmônico forte
+que os detectores de sirene procuram. Os harmônicos são somados
+explicitamente e descartados ao passar de Nyquist, então a varredura nunca
+dobra nada de volta como nota errada.
 
-A varredura assimétrica do WAIL-2 usa uma tabela harmônica derivada por DFT da
-forma de onda exata. A fórmula fechada que costuma ser citada para esse
-formato só tem termos seno, e um triângulo assimétrico não é função ímpar — ela
-coloca o pico no lugar errado. Integrar numericamente resolve, e o custo
-aparece uma vez na inicialização.
+**A buzina** são duas trombetas a uma terça menor. O ciclo ativo da palheta
+estreita conforme a pressão sobe, então o tom *abre* durante o ataque em vez
+de só ficar mais alto; e a turbulência é aberta e fechada pela própria
+palheta.
 
-O air horn são três trombetas afinadas em acorde, levemente desafinadas entre
-si, com jato de ar no ataque e queda de pressão ao soltar. A Q-siren segue a
-física do rotor: `f = (rpm ÷ 60) × portas`, com 14 portas, subida sob carga e
-descida longa por causa da embreagem de roda-livre.
+**A Q-siren** tem 14 portas no rotor e 14 no estator, da mesma largura, então
+a área aberta é um triângulo. Mas o som radiado não é esse triângulo: pressão
+vem da *taxa de variação* do fluxo, e a derivada de um triângulo é uma onda
+quadrada — assimétrica aqui, logo rica em harmônicos pares e ímpares. Só o
+regime é renderizado; a partida de 2–3 s e a descida de meio minuto são rampas
+de velocidade de reprodução sobre esse laço, o que é mais barato e mais fiel,
+já que numa sirene real tudo escala junto com a rotação.
+
+Cada família passa pelo **seu** radiador: corneta com driver de compressão,
+trombeta com flare, ou rotor em carcaça de aço. Usar a mesma equalização nas
+três filtrava a fundamental da própria trombeta.
+
+E nada é ouvido seco. Reflexões curtas de rua fazem mais pela credibilidade do
+que qualquer ajuste de espectro, porque tom perfeitamente seco é a única coisa
+que um som real nunca é.
+
+### Emendas de laço
+
+Um tom varrido não pode ser cortado num cruzamento por zero — a onda está em
+outro ponto do ciclo no fim e no começo, e a junta estala a cada repetição.
+Laços inteiros são renderizados com uma cauda extra que é cruzada sobre a
+cabeça, preservando o período exato. Laços com ataque na frente usam a técnica
+de sampler oposta: o material *anterior* ao início do laço entra por cima da
+cauda, porque misturar a cabeça do laço quebraria a junta onde o ataque entrega
+para ele — audível a cada nota, não a cada repetição.
 
 ## Rodando localmente
 
@@ -172,41 +194,12 @@ que ler o código não pegou:
   uma vez.
 
 ```
-60/60 checks passed     (áudio)
-55/55 UI checks passed  (navegador)
+57/57 checks passed     (áudio)
+63/63 UI checks passed  (navegador)
 ```
 
 Os ícones são gerados por `python3 tools/make-icons.py`, que escreve os PNGs à
 mão — sem dependência de biblioteca de imagem.
-
-## Publicando
-
-Um push dispara o workflow, que roda as duas suítes e só então publica no
-GitHub Pages.
-
-**Antes do primeiro deploy funcionar, o Pages precisa ser ligado uma vez:**
-
-> Settings → Pages → Build and deployment → Source → **GitHub Actions**
-
-Sem isso o job de deploy falha com *"Get Pages site failed"*.
-
-Não dá para automatizar esse passo. A `configure-pages` sabe criar o site com
-`enablement: true`, mas essa chamada precisa do escopo `administration` — e
-`administration` não está entre os escopos que um workflow pode pedir para o
-`GITHUB_TOKEN`. Pedi-lo torna o próprio arquivo de workflow inválido e a
-execução falha antes de qualquer job começar. Funcionaria só com um token
-pessoal de administrador guardado no repositório, o que é bem pior do que uma
-visita a uma tela de ajustes.
-
-**Mas é só isso que precisa de você.** O workflow roda também uma vez por dia e
-publica sozinho assim que encontrar o Pages ligado — não é preciso empurrar
-outro commit nem reexecutar nada. E enquanto o Pages estiver desligado ele não
-marca a execução como falha: os testes é que são o portão de verdade, e um X
-vermelho por dia só faria barulho. O resumo da execução diz, em português, o que
-aconteceu.
-
-Depois de ligado, o endereço é
-`https://<usuário>.github.io/<repositório>/`.
 
 ## Avisos
 

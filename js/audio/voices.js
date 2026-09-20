@@ -1,147 +1,209 @@
 /**
- * voices.js — one synthesis class per family of siren.
+ * voices.js — one playing voice per sounding tone.
  *
- * The sweeping tones are built the analogue way: a low-frequency oscillator
- * modulating the carrier's frequency AudioParam through a gain node whose
- * value is the sweep depth in hertz. That is glitch-free and runs forever
- * without a scheduler, which matters because a siren is held down for
- * minutes, not milliseconds.
+ * The sound itself is computed in render.js as plain arithmetic over a
+ * Float32Array; a voice's job is to put that buffer into the graph, give it
+ * the radiator it belongs to, and drive its envelope.
  *
- *   LFO ─► depth (Hz) ─┬─► carrierA.frequency   (base = centre)
- *                      └─► carrierB.frequency   (base = centre + detune)
- *
- * Two carriers a few hertz apart reproduce the beating of a real two-driver
- * speaker pair. It is a small detail that does a lot of the realism.
+ * What lives where matters here. The things a real object does per sample —
+ * a reed's jitter, turbulence gated by the airflow, band-limited harmonics
+ * that drop partials as they pass Nyquist — are baked into the buffer. The
+ * things that are just a filter — the horn's fixed resonances, the driver's
+ * distortion — stay in the graph, so a voice whose pitch is driven by
+ * playback rate does not drag them around with it.
  */
 
-import { toneRange } from './tones.js';
-
-const TAU = Math.PI * 2;
-
-/** Used when RUMBLE is switched on before any siren is playing. */
-const TONES_FALLBACK = { kind: 'sweep', lo: 725, hi: 1800, rateHz: 0.25, shape: 'tri' };
-
-/**
- * A finite, positive frequency or the given fallback. Every value that
- * reaches an AudioParam goes through here: one NaN is enough to silence a
- * node permanently, and the exception it throws is raised far from the spec
- * that actually caused it.
- */
-const hzOr = (v, fallback) => (Number.isFinite(v) && v > 0 ? v : fallback);
+import { driverClip } from './dsp.js';
+import {
+  renderSiren, renderHorn, renderMechSteady, renderSteady, renderRumble,
+} from './render.js';
 
 /* ------------------------------------------------------------------ *
- * LFO shape tables
+ * Radiator voicings
  * ------------------------------------------------------------------ */
 
 /**
- * Asymmetric triangle: rises over `r` of the period, falls over the rest.
- *
- * The closed-form sine-only series for this shape is wrong here — an
- * asymmetric triangle is not an odd function, so it needs cosine terms too.
- * Integrating the exact waveform numerically gets both, and it is done once
- * per distinct shape at startup, so the cost never shows up while playing.
+ * One per family, because these are not the same object. A siren head is a
+ * compression driver on a horn: a hard presence peak and nothing below a few
+ * hundred hertz. An air horn is a flaring trumpet whose fundamental is the
+ * whole point. A Q is a rotor in a steel housing. Running all three through
+ * the siren-speaker curve — which an earlier version did — filtered a
+ * trumpet tuned to 311 Hz away from its own fundamental.
  */
-const _waveCache = new Map();
+const VOICING = {
+  siren:  { drive: 1.5,  lowCut: 330, highCut: 7800,
+            bands: [[700, 1.1, -4], [1250, 1.5, 5.5], [2600, 2.0, 4]] },
+  horn:   { drive: 1.15, lowCut: 130, highCut: 6800,
+            bands: [[480, 1.0, 3], [1400, 1.3, 2]] },
+  mech:   { drive: 1.3,  lowCut: 190, highCut: 8200,
+            bands: [[900, 0.9, 3], [2000, 1.4, 2]] },
+  rumble: { drive: 1.1,  lowCut: 70,  highCut: 1200,
+            bands: [[160, 0.9, 3]] },
+};
 
-function asymTriangleWave(ctx, r, harmonics = 64, samples = 2048) {
-  const key = `${r}:${harmonics}`;
-  const cached = _waveCache.get(key);
-  if (cached && cached.ctx === ctx) return cached.wave;
-
-  const real = new Float32Array(harmonics + 1);
-  const imag = new Float32Array(harmonics + 1);
-  const scale = 2 / samples;
-
-  for (let i = 0; i < samples; i++) {
-    const ph = i / samples;
-    // -1 .. +1, peaking at phase r
-    const v = (ph < r ? ph / r : 1 - (ph - r) / (1 - r)) * 2 - 1;
-    for (let n = 1; n <= harmonics; n++) {
-      const a = TAU * n * ph;
-      real[n] += v * Math.cos(a) * scale;
-      imag[n] += v * Math.sin(a) * scale;
-    }
+/** Shaper curves are identical per family, so they are built once. */
+const curveCache = new Map();
+function driveCurve(drive) {
+  let c = curveCache.get(drive);
+  if (!c) {
+    const n = 2048;
+    c = new Float32Array(n);
+    for (let i = 0; i < n; i++) c[i] = driverClip((i / (n - 1)) * 2 - 1, drive);
+    curveCache.set(drive, c);
   }
-
-  const wave = ctx.createPeriodicWave(real, imag, { disableNormalization: false });
-  _waveCache.set(key, { ctx, wave });
-  return wave;
+  return c;
 }
 
-/** Base class: owns an output gain and the bookkeeping to tear itself down. */
+/* ------------------------------------------------------------------ *
+ * Rendered buffer cache
+ * ------------------------------------------------------------------ */
+
+const bufferCache = new Map();
+
+function toAudioBuffer(ctx, rendered) {
+  const buf = ctx.createBuffer(1, rendered.data.length, ctx.sampleRate);
+  buf.getChannelData(0).set(rendered.data);
+  const out = { buffer: buf, loopStart: (rendered.loopStart ?? 0) / ctx.sampleRate };
+  if (rendered.release) {
+    const rel = ctx.createBuffer(1, rendered.release.length, ctx.sampleRate);
+    rel.getChannelData(0).set(rendered.release);
+    out.release = rel;
+  }
+  if (rendered.peakHz) out.peakHz = rendered.peakHz;
+  return out;
+}
+
+/**
+ * Renders a tone, or returns the copy made earlier. Keyed by sample rate as
+ * well as by tone: a phone that opens at 44.1 kHz and a desktop at 48 kHz
+ * need different buffers, and an AudioBuffer at the wrong rate plays at the
+ * wrong pitch.
+ */
+export function getBuffers(engine, spec, opts = {}) {
+  const sr = engine.ctx.sampleRate;
+  const key = `${spec.id}:${sr}:${opts.rate ?? 1}:${opts.sourceId ?? ''}`;
+  let hit = bufferCache.get(key);
+  if (hit) return hit;
+
+  let rendered;
+  switch (spec.kind) {
+    case 'sweep':
+    case 'twotone':
+      rendered = renderSiren({ ...spec, rateHz: spec.rateHz * (opts.rate ?? 1) }, sr);
+      break;
+    case 'horn':       rendered = renderHorn(spec, sr); break;
+    case 'mechanical': rendered = renderMechSteady(spec, sr); break;
+    case 'manual':     rendered = renderSteady(spec.lo, sr); break;
+    case 'rumble':     rendered = renderRumble(spec, opts.source, sr); break;
+    default: throw new Error(`Tipo de voz desconhecido: ${spec.kind}`);
+  }
+
+  hit = toAudioBuffer(engine.ctx, rendered);
+  bufferCache.set(key, hit);
+  return hit;
+}
+
+/**
+ * Yields to the browser between tones. requestIdleCallback takes an options
+ * object as its second argument, not a delay — passing setTimeout's number
+ * throws, and since this runs inside the audio unlock, that exception took
+ * the first key press down with it.
+ */
+const whenIdle = (fn) => (typeof requestIdleCallback === 'function'
+  ? requestIdleCallback(fn, { timeout: 250 })
+  : setTimeout(fn, 1));
+
+/** Renders everything ahead of time, a tone per idle slice. */
+export function prewarm(engine, tones, sourceForRumble) {
+  const list = Object.values(tones);
+  let i = 0;
+  const step = () => {
+    if (i >= list.length) return;
+    const spec = list[i++];
+    try {
+      getBuffers(engine, spec, spec.kind === 'rumble' ? { source: sourceForRumble } : {});
+    } catch { /* a tone that cannot be pre-rendered will render on demand */ }
+    whenIdle(step);
+  };
+  whenIdle(step);
+}
+
+/* ------------------------------------------------------------------ *
+ * Voice
+ * ------------------------------------------------------------------ */
+
 class Voice {
-  constructor(engine, spec, opts = {}) {
+  constructor(engine, spec, family, opts = {}) {
     this.engine = engine;
     this.ctx = engine.ctx;
     this.spec = spec;
-    this.nodes = [];
-    this.out = this.ctx.createGain();
-    this.out.gain.value = 0;
-    // Defaults to the faceplate's bus; the guide passes the preview bus so
-    // the two can be balanced against each other.
-    this.out.connect(opts.bus ?? engine.bus);
+    this.family = family;
     this.startedAt = 0;
-    this.rateFactor = 1;
     this.stopped = false;
     this.killed = false;
+    this.rateFactor = 1;
+    this._nodes = [];
+
+    const ctx = this.ctx;
+    const v = VOICING[family];
+
+    this.out = ctx.createGain();
+    this.out.gain.value = 0;
+
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = driveCurve(v.drive);
+    shaper.oversample = '2x';
+
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = v.lowCut; hp.Q.value = 0.72;
+
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = v.highCut; lp.Q.value = 0.7;
+
+    let node = shaper;
+    node.connect(hp);
+    node = hp;
+    for (const [f, q, g] of v.bands) {
+      const pk = ctx.createBiquadFilter();
+      pk.type = 'peaking'; pk.frequency.value = f; pk.Q.value = q; pk.gain.value = g;
+      node.connect(pk);
+      node = pk;
+      this._nodes.push(pk);
+    }
+    node.connect(lp).connect(this.out);
+    this.out.connect(opts.bus ?? engine.bus);
+
+    this.head = shaper;
+    this._nodes.push(shaper, hp, lp, this.out);
   }
 
-  _track(node) { this.nodes.push(node); return node; }
-
-  _osc(type, freq) {
-    const o = this.ctx.createOscillator();
-    if (typeof type === 'string') o.type = type;
-    else o.setPeriodicWave(type);
-    o.frequency.value = freq;
-    return this._track(o);
-  }
-
-  _gain(v = 1) {
-    const g = this.ctx.createGain();
-    g.gain.value = v;
-    return this._track(g);
-  }
-
-  /** Pink-noise source for air rush / rotor turbulence. */
-  _noise(level, filterHz) {
+  _source(buffers, loop = true) {
     const src = this.ctx.createBufferSource();
-    src.buffer = this.engine.noiseBuffer;
-    src.loop = true;
-    const bp = this.ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = filterHz;
-    bp.Q.value = 0.8;
-    const g = this._gain(level);
-    src.connect(bp).connect(g);
-    this._track(src);
-    this._track(bp);
-    return { src, gain: g, filter: bp };
+    src.buffer = buffers.buffer;
+    if (loop) {
+      src.loop = true;
+      src.loopStart = buffers.loopStart;
+      src.loopEnd = buffers.buffer.duration;
+    }
+    src.connect(this.head);
+    this._sources = this._sources || [];
+    this._sources.push(src);
+    return src;
   }
 
-  fadeIn(t, seconds = 0.03, to = 1) {
+  fadeIn(t, seconds = 0.02) {
+    const g = this.spec.gain ?? 1;
     this.out.gain.cancelScheduledValues(t);
-    this.out.gain.setValueAtTime(this.out.gain.value, t);
-    this.out.gain.linearRampToValueAtTime(to * (this.spec.gain ?? 1), t + seconds);
+    this.out.gain.setValueAtTime(0, t);
+    this.out.gain.linearRampToValueAtTime(g, t + seconds);
   }
-
-  /** Rate trim from the MOD button. Overridden where a rate exists. */
-  setRate(factor) { this.rateFactor = factor; }
-
-  /** Current fundamental in Hz, for the LCD. Overridden per family. */
-  frequency() { return 0; }
 
   /**
-   * Immediate silence — what STOP and the power button need.
-   *
-   * stop() is a musical release: the Q-siren's takes nineteen seconds of
-   * coast-down, which is right when you switch that tone off but wrong when
-   * someone hits the panic button. kill() skips the tail entirely and only
-   * ramps far enough to avoid a click.
+   * Immediate silence — what STOP and the power key need. Deliberately not
+   * guarded on `stopped`: a voice in its release tail is exactly what this
+   * is for, and a Q's tail is half a minute long.
    */
   kill(when) {
-    // Deliberately NOT guarded on `stopped`: a voice in its release tail is
-    // exactly what this is for. The Q-siren's tail is nineteen seconds long,
-    // and guarding here made kill() a no-op in the one case that mattered.
     if (this.killed) return;
     this.killed = true;
     this.stopped = true;
@@ -164,107 +226,65 @@ class Voice {
   }
 
   _teardown(at) {
-    for (const n of this.nodes) {
-      try { n.stop?.(at); } catch { /* already stopped */ }
+    for (const s of this._sources ?? []) {
+      try { s.stop(at); } catch { /* already stopped */ }
     }
     setTimeout(() => {
-      for (const n of this.nodes) { try { n.disconnect(); } catch {} }
-      try { this.out.disconnect(); } catch {}
-      this.nodes.length = 0;
+      for (const s of this._sources ?? []) { try { s.disconnect(); } catch {} }
+      for (const n of this._nodes) { try { n.disconnect(); } catch {} }
+      this._nodes.length = 0;
+      this._sources = [];
     }, Math.max(0, (at - this.ctx.currentTime) * 1000) + 120);
   }
+
+  setRate(factor) { this.rateFactor = factor; }
+  frequency() { return 0; }
 }
 
 /* ------------------------------------------------------------------ *
- * Sweeping and two-tone sirens (wail, yelp, phaser, wa-wa, hi-lo)
+ * Sweeping and two-tone sirens
  * ------------------------------------------------------------------ */
 
-export class SweepVoice extends Voice {
+class SweepVoice extends Voice {
   constructor(engine, spec, opts) {
-    super(engine, spec, opts);
-    const ctx = this.ctx;
-    const s = spec;
-    const wave = engine.waves[s.wave] || engine.waves.siren;
-
-    this.centre = (s.lo + s.hi) / 2;
-    this.depth = (s.hi - s.lo) / 2;
-
-    // --- the two carriers -------------------------------------------
-    this.carrierA = this._osc(wave, this.centre);
-    this.carrierB = this._osc(wave, this.centre + (s.detune ?? 0));
-    const mixA = this._gain(0.58);
-    const mixB = this._gain(0.42);
-    this.carrierA.connect(mixA);
-    this.carrierB.connect(mixB);
-
-    // --- the sweep LFO ------------------------------------------------
-    this.lfo = ctx.createOscillator();
-    this._track(this.lfo);
-    this.lfo.frequency.value = s.rateHz;
-
-    if (s.shape === 'sq') {
-      // Hi-Lo does not sweep: it jumps. A square LFO through a lowpass gives
-      // the few milliseconds of glide a real trumpet pair actually takes.
-      this.lfo.type = 'square';
-      const glide = ctx.createBiquadFilter();
-      glide.type = 'lowpass';
-      glide.frequency.value = 1000 / (TAU * (s.glideMs ?? 18));
-      glide.Q.value = 0.707;
-      this.depthNode = this._gain(this.depth);
-      this.lfo.connect(glide).connect(this.depthNode);
-      this._track(glide);
-    } else {
-      this.lfo.setPeriodicWave(asymTriangleWave(ctx, s.shape === 'ramp' ? (s.riseRatio ?? 0.68) : 0.5));
-      this.depthNode = this._gain(this.depth);
-      this.lfo.connect(this.depthNode);
-    }
-
-    // One modulation signal, both carriers — they stay in lockstep and keep
-    // their fixed offset, which is exactly how a two-speaker rig behaves.
-    this.depthNode.connect(this.carrierA.frequency);
-    this.depthNode.connect(this.carrierB.frequency);
-
-    // --- optional amplitude gate (phaser, wa-wa) ------------------------
-    let tail = this._gain(1);
-    mixA.connect(tail);
-    mixB.connect(tail);
-
-    if (s.gate) {
-      const gateGain = this._gain(1 - s.gate.depth / 2);
-      this.gateLfo = ctx.createOscillator();
-      this._track(this.gateLfo);
-      this.gateLfo.type = 'sine';
-      this.gateLfo.frequency.value = s.gate.rateHz;
-      const gateDepth = this._gain(s.gate.depth / 2);
-      this.gateLfo.connect(gateDepth).connect(gateGain.gain);
-      tail.connect(gateGain);
-      tail = gateGain;
-    }
-
-    tail.connect(this.out);
+    super(engine, spec, 'siren', opts);
+    this.opts = opts;
+    this.buffers = getBuffers(engine, spec, { rate: 1 });
+    this.src = this._source(this.buffers);
   }
 
   start(when) {
     const t = when ?? this.ctx.currentTime;
     this.startedAt = t;
-    this.carrierA.start(t);
-    this.carrierB.start(t);
-    this.lfo.start(t);
-    this.gateLfo?.start(t);
-    this.fadeIn(t, 0.04);
+    this.src.start(t);
+    this.fadeIn(t, 0.03);
   }
 
+  /**
+   * MOD trims the sweep rate, which means a different buffer rather than a
+   * different playback rate — resampling would carry the pitch with it and
+   * a wail swept faster is not a wail transposed up.
+   */
   setRate(factor) {
+    if (factor === this.rateFactor || this.killed || this.stopped) return;
     this.rateFactor = factor;
     const t = this.ctx.currentTime;
-    this.lfo.frequency.setTargetAtTime(this.spec.rateHz * factor, t, 0.05);
-    this.gateLfo?.frequency.setTargetAtTime(this.spec.gate.rateHz * factor, t, 0.05);
+    const next = getBuffers(this.engine, this.spec, { rate: factor });
+    const src = this._source(next);
+    const old = this.src;
+    this.src = src;
+    this.buffers = next;
+    // Swapped under a short crossfade so the change is heard as a change of
+    // rate and not as a gap.
+    src.start(t);
+    try { old.stop(t + 0.05); } catch {}
+    this.startedAt = t;
   }
 
-  /** Re-derives the LFO position from elapsed time so the LCD tracks the tone. */
   frequency() {
     const s = this.spec;
-    const phase = ((this.ctx.currentTime - this.startedAt) * s.rateHz * this.rateFactor) % 1;
+    const rate = s.rateHz * this.rateFactor;
+    const phase = ((this.ctx.currentTime - this.startedAt) * rate) % 1;
     if (s.shape === 'sq') return phase < 0.5 ? s.hi : s.lo;
     const r = s.shape === 'ramp' ? (s.riseRatio ?? 0.68) : 0.5;
     const tri = phase < r ? phase / r : 1 - (phase - r) / (1 - r);
@@ -276,261 +296,162 @@ export class SweepVoice extends Voice {
  * Air horn
  * ------------------------------------------------------------------ */
 
-export class HornVoice extends Voice {
+class HornVoice extends Voice {
   constructor(engine, spec, opts) {
-    super(engine, spec, opts);
-    const s = spec;
-    const wave = engine.waves[s.wave] || engine.waves.horn;
-    this.bells = [];
-
-    for (const bell of s.bells) {
-      const osc = this._osc(wave, bell.hz);
-      osc.detune.value = bell.detune * 100 * 0.01; // cents of shimmer between trumpets
-      // The three bells sum, so each is scaled to leave the chord under unity.
-      const g = this._gain(bell.gain * 0.38);
-      osc.connect(g).connect(this.out);
-      this.bells.push({ osc, gain: g, hz: bell.hz });
-    }
-
-    // The hiss of air escaping the diaphragm, brightest at the onset.
-    this.air = this._noise(0, s.bells[0].hz * 3);
-    this.air.gain.connect(this.out);
+    super(engine, spec, 'horn', opts);
+    this.buffers = getBuffers(engine, spec);
+    this.src = this._source(this.buffers);
   }
 
   start(when) {
     const t = when ?? this.ctx.currentTime;
     this.startedAt = t;
-    const s = this.spec;
-    const atk = s.attackMs / 1000;
-
-    for (const b of this.bells) {
-      b.osc.start(t);
-      // Pressure builds: the bell starts flat and pulls up into tune.
-      const from = b.hz * Math.pow(2, -s.scoopSemis / 12);
-      b.osc.frequency.setValueAtTime(from, t);
-      b.osc.frequency.exponentialRampToValueAtTime(b.hz, t + atk * 2.4);
-    }
-
-    this.air.src.start(t);
-    // A burst of air at the start, then it settles to a steady hiss.
-    this.air.gain.gain.setValueAtTime(0, t);
-    this.air.gain.gain.linearRampToValueAtTime(this.spec.airNoise, t + atk * 0.5);
-    this.air.gain.gain.setTargetAtTime(this.spec.airNoise * 0.32, t + atk, 0.12);
-
-    this.out.gain.setValueAtTime(0, t);
-    this.out.gain.linearRampToValueAtTime(this.spec.gain, t + atk);
+    this.src.start(t);
+    // The buffer carries its own attack, so the gain only needs to arrive.
+    this.out.gain.setValueAtTime(this.spec.gain ?? 1, t);
   }
 
   stop(when) {
     if (this.stopped || this.killed) return;
     this.stopped = true;
     const t = when ?? this.ctx.currentTime;
-    const rel = this.spec.releaseMs / 1000;
-
-    // Air bleeds out, so the pitch sags as the note dies.
-    for (const b of this.bells) {
-      const to = b.hz * Math.pow(2, -this.spec.droopSemis / 12);
-      b.osc.frequency.cancelScheduledValues(t);
-      b.osc.frequency.setValueAtTime(b.osc.frequency.value, t);
-      b.osc.frequency.exponentialRampToValueAtTime(to, t + rel);
+    // The release was rendered as a continuation of the same reed, so the
+    // pressure bleeds off and the pitch sags exactly as it was computed.
+    if (this.buffers.release) {
+      const rel = this.ctx.createBufferSource();
+      rel.buffer = this.buffers.release;
+      rel.connect(this.head);
+      this._sources.push(rel);
+      rel.start(t);
+      try { this.src.stop(t + 0.004); } catch {}
+      this._teardown(t + this.buffers.release.duration + 0.05);
+    } else {
+      super.stop(when);
     }
-    this.out.gain.cancelScheduledValues(t);
-    this.out.gain.setValueAtTime(this.out.gain.value, t);
-    this.out.gain.linearRampToValueAtTime(0, t + rel);
-    this._teardown(t + rel + 0.05);
   }
 
   frequency() { return this.spec.bells[0].hz; }
 }
 
 /* ------------------------------------------------------------------ *
- * Mechanical (Federal Signal Q-siren)
+ * Mechanical siren
  * ------------------------------------------------------------------ */
 
-export class MechanicalVoice extends Voice {
+/**
+ * Only the steady state is rendered; the wind-up and the coast-down are
+ * playback-rate ramps over that loop. On a real siren everything scales with
+ * rotor speed at once — pitch, the harmonics above it, and the rate at which
+ * the air is chopped — which is precisely what changing the playback rate
+ * does, and it is also why a thirty-second coast costs no memory.
+ */
+class MechVoice extends Voice {
   constructor(engine, spec, opts) {
-    super(engine, spec, opts);
-    const wave = engine.waves[spec.wave] || engine.waves.mech;
-    this.carrier = this._osc(wave, 1);
-    this.carrierGain = this._gain(0);
-    this.carrier.connect(this.carrierGain).connect(this.out);
-
-    // Rotor turbulence: a rotating chopper moves a lot of air, and the noise
-    // rises with speed just like the tone does.
-    this.air = this._noise(0, 900);
-    this.air.gain.connect(this.out);
-
-    this.phase = 'idle';
-    this.phaseStart = 0;
+    super(engine, spec, 'mech', opts);
+    this.buffers = getBuffers(engine, spec);
+    this.peak = this.buffers.peakHz ?? (spec.runRpm / 60) * spec.ports;
+    this.src = this._source(this.buffers);
+    this.startRate = 70 / this.peak;
+    this.floorRate = 90 / this.peak;
   }
-
-  /** f = (rotor rpm / 60) × ports — the actual physics of a ported rotor. */
-  _hzFor(rpm) { return Math.max(1, (rpm / 60) * this.spec.ports); }
 
   start(when) {
     const t = when ?? this.ctx.currentTime;
-    const s = this.spec;
     this.startedAt = t;
-    this.phase = 'up';
-    this.phaseStart = t;
-
-    this.carrier.start(t);
-    this.air.src.start(t);
-
-    const peak = this._hzFor(s.runRpm);
-    const idle = this._hzFor(60);
-    this.carrier.frequency.setValueAtTime(idle, t);
-    // A loaded motor accelerates fast then tapers, which an exponential ramp
-    // in frequency models closely enough to be convincing.
-    this.carrier.frequency.exponentialRampToValueAtTime(peak * 0.72, t + s.spinUpS * 0.42);
-    this.carrier.frequency.exponentialRampToValueAtTime(peak, t + s.spinUpS);
-
-    // The tone emerges out of the noise as the rotor comes up to speed: at
-    // low rpm a real Q is mostly the sound of air being moved, and the
-    // chopped tone only takes over once the ports are cutting fast enough.
-    this.carrierGain.gain.setValueAtTime(0.12, t);
-    this.carrierGain.gain.linearRampToValueAtTime(1, t + s.spinUpS * 0.75);
-
+    const s = this.spec;
+    this.src.playbackRate.setValueAtTime(this.startRate, t);
+    // Two to three seconds of wind-up, per the published figure. A motor has
+    // most of its torque at stall, so it gains speed fast and then tapers.
+    this.src.playbackRate.exponentialRampToValueAtTime(0.72, t + s.spinUpS * 0.42);
+    this.src.playbackRate.exponentialRampToValueAtTime(1, t + s.spinUpS);
+    this.src.start(t);
     this.out.gain.setValueAtTime(0, t);
-    this.out.gain.linearRampToValueAtTime(s.gain * 0.35, t + 0.6);
-    this.out.gain.linearRampToValueAtTime(s.gain, t + s.spinUpS * 0.8);
-
-    // Turbulence rises in pitch with the rotor, same as the tone does.
-    this.air.filter.frequency.setValueAtTime(idle * 6, t);
-    this.air.filter.frequency.exponentialRampToValueAtTime(peak * 1.6, t + s.spinUpS);
-    this.air.gain.gain.setValueAtTime(s.airNoise * 0.8, t);
-    this.air.gain.gain.linearRampToValueAtTime(s.airNoise, t + s.spinUpS * 0.7);
+    this.out.gain.linearRampToValueAtTime((s.gain ?? 1) * 0.5, t + 0.25);
+    this.out.gain.linearRampToValueAtTime(s.gain ?? 1, t + s.spinUpS * 0.7);
+    this.phase = 'up';
   }
 
-  /** Cut power: the coaster clutch lets it freewheel down for many seconds. */
   stop(when) {
     if (this.stopped || this.killed) return;
     this.stopped = true;
     const t = when ?? this.ctx.currentTime;
     const s = this.spec;
-    // Read the rotor speed at the moment power is cut, not at whatever
-    // currentTime happens to be — they differ whenever the stop is scheduled
-    // ahead, and the coast-down would start from the wrong pitch.
     this.coastFrom = this.frequency(t);
     this.phase = 'down';
     this.phaseStart = t;
 
-    const floor = this._hzFor(40);
-    this.carrier.frequency.cancelScheduledValues(t);
-    this.carrier.frequency.setValueAtTime(Math.max(floor, this.coastFrom), t);
-    this.carrier.frequency.exponentialRampToValueAtTime(floor, t + s.coastDownS);
-
-    this.carrierGain.gain.cancelScheduledValues(t);
-    this.carrierGain.gain.setValueAtTime(this.carrierGain.gain.value, t);
-    this.carrierGain.gain.linearRampToValueAtTime(0.1, t + s.coastDownS);
+    // The coaster clutch is the whole point of a Q: power comes off and it
+    // freewheels down for the better part of a minute.
+    const from = Math.max(this.floorRate, this.coastFrom / this.peak);
+    this.src.playbackRate.cancelScheduledValues(t);
+    this.src.playbackRate.setValueAtTime(from, t);
+    this.src.playbackRate.exponentialRampToValueAtTime(this.floorRate, t + s.coastDownS);
 
     this.out.gain.cancelScheduledValues(t);
     this.out.gain.setValueAtTime(this.out.gain.value, t);
     this.out.gain.setTargetAtTime(0, t + s.coastDownS * 0.45, s.coastDownS * 0.22);
-
-    this.air.filter.frequency.cancelScheduledValues(t);
-    this.air.filter.frequency.setValueAtTime(this.air.filter.frequency.value, t);
-    this.air.filter.frequency.exponentialRampToValueAtTime(floor * 6, t + s.coastDownS);
-    this.air.gain.gain.cancelScheduledValues(t);
-    this.air.gain.gain.setValueAtTime(this.air.gain.gain.value, t);
-    this.air.gain.gain.linearRampToValueAtTime(0, t + s.coastDownS * 0.9);
-
     this._teardown(t + s.coastDownS + 0.4);
   }
 
-  /**
-   * Mirrors the scheduled ramps exactly rather than approximating them.
-   *
-   * The audio winds up in two exponential segments — a fast one to 72% of
-   * peak, then a slower one to peak — and modelling that as a single
-   * exponential put this reading four times below the real pitch halfway
-   * through the spin-up. That is not just a wrong number on the display:
-   * stop() takes its coast-down starting point from here, so switching the
-   * siren off before it reached speed dropped the pitch off a cliff.
-   */
   frequency(at) {
     const s = this.spec;
     const now = at ?? this.ctx.currentTime;
-    const el = now - this.phaseStart;
-    const idle = this._hzFor(60);
-    const peak = this._hzFor(s.runRpm);
-    const floor = this._hzFor(40);
-
-    if (this.phase === 'up') {
-      const kneeT = s.spinUpS * 0.42;
-      const kneeHz = peak * 0.72;
-      if (el <= 0) return idle;
-      if (el <= kneeT) return idle * Math.pow(kneeHz / idle, el / kneeT);
-      if (el < s.spinUpS) {
-        return kneeHz * Math.pow(peak / kneeHz, (el - kneeT) / (s.spinUpS - kneeT));
-      }
-      return peak;
-    }
-
     if (this.phase === 'down') {
-      const from = Math.max(floor, this.coastFrom ?? peak);
-      const k = Math.min(1, Math.max(0, el / s.coastDownS));
-      return from * Math.pow(floor / from, k);
+      const k = Math.min(1, Math.max(0, (now - this.phaseStart) / s.coastDownS));
+      const from = Math.max(90, this.coastFrom ?? this.peak);
+      return from * Math.pow(90 / from, k);
     }
-    return 0;
+    const el = now - this.startedAt;
+    const knee = s.spinUpS * 0.42;
+    const start = 70;
+    if (el <= 0) return start;
+    if (el <= knee) return start * Math.pow(this.peak * 0.72 / start, el / knee);
+    if (el < s.spinUpS) {
+      return this.peak * 0.72 * Math.pow(1 / 0.72, (el - knee) / (s.spinUpS - knee));
+    }
+    return this.peak;
   }
 }
 
 /* ------------------------------------------------------------------ *
- * Manual wail — pitch follows the button
+ * Manual wail
  * ------------------------------------------------------------------ */
 
-export class ManualVoice extends Voice {
+/** Pitch follows the finger, so the steady loop is driven by playback rate. */
+class ManualVoice extends Voice {
   constructor(engine, spec, opts) {
-    super(engine, spec, opts);
-    const wave = engine.waves[spec.wave] || engine.waves.siren;
-    this.a = this._osc(wave, spec.lo);
-    this.b = this._osc(wave, spec.lo + (spec.detune ?? 0));
-    const ga = this._gain(0.58);
-    const gb = this._gain(0.42);
-    this.a.connect(ga).connect(this.out);
-    this.b.connect(gb).connect(this.out);
-    this.target = spec.lo;
-    this.rampStart = 0;
+    super(engine, spec, 'siren', opts);
+    this.buffers = getBuffers(engine, spec);
+    this.base = spec.lo;
+    this.src = this._source(this.buffers);
     this.rampFrom = spec.lo;
     this.rampTo = spec.lo;
     this.rampS = 0;
+    this.rampStart = 0;
   }
 
   start(when) {
     const t = when ?? this.ctx.currentTime;
     this.startedAt = t;
-    this.a.start(t);
-    this.b.start(t);
-    this.fadeIn(t, 0.05);
+    this.src.playbackRate.setValueAtTime(1, t);
+    this.src.start(t);
+    this.fadeIn(t, 0.04);
     this.rise(t);
   }
 
-  /** Finger down — wind it up. */
-  rise(when) {
-    const t = when ?? this.ctx.currentTime;
-    this._rampTo(this.spec.hi, this.spec.riseS, t);
-  }
+  rise(when) { this._glide(this.spec.hi, this.spec.riseS, when); }
+  fall(when) { this._glide(this.spec.lo, this.spec.fallS, when); }
 
-  /** Finger up — let it fall away. */
-  fall(when) {
+  _glide(to, seconds, when) {
     const t = when ?? this.ctx.currentTime;
-    this._rampTo(this.spec.lo, this.spec.fallS, t);
-  }
-
-  _rampTo(to, seconds, t) {
     const from = this.frequency();
-    // Scale the time by how far there is left to travel, so a short tap
-    // does not take the full rise time to come back down.
+    // Scaled by how far there is left to travel, so a short tap does not
+    // take the full time to come back down.
     const span = Math.abs(this.spec.hi - this.spec.lo);
     const dur = Math.max(0.08, seconds * (Math.abs(to - from) / span));
     this.rampFrom = from; this.rampTo = to; this.rampS = dur; this.rampStart = t;
-    const d = this.spec.detune ?? 0;
-    for (const [osc, off] of [[this.a, 0], [this.b, d]]) {
-      osc.frequency.cancelScheduledValues(t);
-      osc.frequency.setValueAtTime(from + off, t);
-      osc.frequency.exponentialRampToValueAtTime(to + off, t + dur);
-    }
+    this.src.playbackRate.cancelScheduledValues(t);
+    this.src.playbackRate.setValueAtTime(from / this.base, t);
+    this.src.playbackRate.exponentialRampToValueAtTime(to / this.base, t + dur);
   }
 
   frequency() {
@@ -541,77 +462,41 @@ export class ManualVoice extends Voice {
 }
 
 /* ------------------------------------------------------------------ *
- * Rumbler — low-frequency companion layer
+ * Low-frequency companion
  * ------------------------------------------------------------------ */
 
-export class RumbleVoice extends Voice {
-  /**
-   * @param source the spec of the siren currently running, so the rumble
-   *               tracks it instead of droning at a fixed pitch.
-   */
+class RumbleVoice extends Voice {
   constructor(engine, spec, source, opts) {
-    super(engine, spec, opts);
-    const wave = engine.waves[spec.wave] || engine.waves.rumble;
-    const src = toneRange(source ?? TONES_FALLBACK);
-
-    // Pick the octave division that lands the tone inside the Rumbler's own
-    // 182-400 Hz working band, whatever the parent siren is doing.
-    const centre = (src.lo + src.hi) / 2;
-    let div = 1;
-    while (centre / div > spec.hi && div < 64) div *= 2;
-
-    // Clamped and checked: a tone whose spec carries no lo/hi at all used to
-    // arrive here as NaN and poison the oscillator's frequency outright.
-    const lo = hzOr(Math.max(spec.lo, src.lo / div), spec.lo);
-    const hi = hzOr(Math.min(spec.hi, Math.max(src.hi / div, lo + 1)), spec.hi);
-
-    this.lo = Math.min(lo, hi);
-    this.hi = Math.max(lo, hi);
-    this.rate = Number.isFinite(src.rateHz) ? src.rateHz : 0;
-    this.shape = src.shape ?? 'tri';
-
-    this.carrier = this._osc(wave, (this.lo + this.hi) / 2);
-    this.carrier.connect(this.out);
-
-    // A tone that does not sweep (the air horn, the Q-siren) gets a steady
-    // sub underneath it rather than a modulator running at 0 Hz.
-    if (this.hi - this.lo > 2 && this.rate > 0.01) {
-      this.lfo = this.ctx.createOscillator();
-      this._track(this.lfo);
-      this.lfo.frequency.value = this.rate;
-      if (this.shape === 'sq') this.lfo.type = 'square';
-      else this.lfo.setPeriodicWave(asymTriangleWave(this.ctx, this.shape === 'ramp' ? 0.68 : 0.5));
-      const depth = this._gain((this.hi - this.lo) / 2);
-      this.lfo.connect(depth).connect(this.carrier.frequency);
-    }
+    super(engine, spec, 'rumble', opts);
+    this.source = source;
+    this.buffers = getBuffers(engine, spec, { source, sourceId: source?.id });
+    this.src = this._source(this.buffers);
+    this.mid = (spec.lo + spec.hi) / 2;
   }
 
   start(when) {
     const t = when ?? this.ctx.currentTime;
     this.startedAt = t;
-    this.carrier.start(t);
-    this.lfo?.start(t);
-    this.fadeIn(t, 0.12);
+    this.src.start(t);
+    this.fadeIn(t, 0.1);
   }
 
-  setRate(factor) {
-    this.rateFactor = factor;
-    this.lfo?.frequency.setTargetAtTime(this.rate * factor, this.ctx.currentTime, 0.05);
-  }
-
-  frequency() { return (this.lo + this.hi) / 2; }
+  frequency() { return this.mid; }
 }
 
-/** Factory: picks the right class for a tone spec. */
+/* ------------------------------------------------------------------ *
+ * Factory
+ * ------------------------------------------------------------------ */
+
 export function createVoice(engine, spec, context = {}) {
   const opts = { bus: context.bus };
   switch (spec.kind) {
     case 'sweep':
-    case 'twotone':   return new SweepVoice(engine, spec, opts);
-    case 'horn':      return new HornVoice(engine, spec, opts);
-    case 'mechanical':return new MechanicalVoice(engine, spec, opts);
-    case 'manual':    return new ManualVoice(engine, spec, opts);
-    case 'rumble':    return new RumbleVoice(engine, spec, context.source, opts);
+    case 'twotone':    return new SweepVoice(engine, spec, opts);
+    case 'horn':       return new HornVoice(engine, spec, opts);
+    case 'mechanical': return new MechVoice(engine, spec, opts);
+    case 'manual':     return new ManualVoice(engine, spec, opts);
+    case 'rumble':     return new RumbleVoice(engine, spec, context.source, opts);
     default: throw new Error(`Tipo de voz desconhecido: ${spec.kind}`);
   }
 }

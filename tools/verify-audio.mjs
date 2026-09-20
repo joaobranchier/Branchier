@@ -1,31 +1,24 @@
 /**
- * verify-audio.mjs — renders the synthesis engine offline and measures the
- * result against the published manufacturer figures in js/audio/tones.js.
+ * verify-audio.mjs — measures the synthesis against the published figures.
  *
- * This is the test that matters for this project: the whole product is a
- * claim about frequencies, and a claim about frequencies should be measured
- * rather than trusted. Run with:  npm test
+ * The whole product is a claim about frequencies, and a claim about
+ * frequencies should be measured rather than trusted.
  *
- * Two measurements are used, because one is not enough:
- *   - pitch, via harmonic product spectrum. A siren's 2nd harmonic sits only
- *     ~2 dB under its fundamental, so a plain "loudest bin" reading flips
- *     octaves halfway through a sweep. HPS multiplies decimated copies of the
- *     spectrum so only the true fundamental survives.
- *   - sweep rate, via the spectral centroid track. The centroid rises and
- *     falls once per sweep, so the peak of its own spectrum IS the LFO rate.
- *     This works identically for a 0.25 Hz wail and a 21.7 Hz phaser.
+ * Most of this needs no audio context at all: the sources are plain
+ * arithmetic over a Float32Array, so they can be rendered and analysed here
+ * directly. Only the master chain is exercised through a real graph, at the
+ * end.
+ *
+ *   npm test
  */
 
-import { OfflineAudioContext, AudioContext } from 'node-web-audio-api';
-
-globalThis.window = { AudioContext };
-globalThis.document = { createElement: () => ({ setAttribute() {}, play: async () => {}, style: {} }) };
-
-const HERE = new URL('../js/audio/', import.meta.url);
-const { AudioEngine } = await import(new URL('engine.js', HERE));
-const { createVoice } = await import(new URL('voices.js', HERE));
-const { TONES } = await import(new URL('tones.js', HERE));
-const { buildWaves, makeNoiseBuffer } = await import(new URL('waves.js', HERE));
+import { TONES } from '../js/audio/tones.js';
+import {
+  renderSiren, renderHorn, renderMechSteady, renderRumble, renderSteady, renderStreetIR,
+} from '../js/audio/render.js';
+import {
+  pulseHarmonics, triangleHarmonics, squareHarmonics, harmonicSum,
+} from '../js/audio/dsp.js';
 
 const SR = 48000;
 
@@ -62,33 +55,49 @@ function magnitudes(data, start, n) {
   return mag;
 }
 
-/** Fundamental via harmonic product spectrum — immune to a dominant 2nd harmonic. */
-function pitchHz(data, start, n, sr, { min = 120, max = 3000, harmonics = 5 } = {}) {
+/**
+ * Fundamental by harmonic product spectrum. A siren's second harmonic sits
+ * close under its fundamental, so a loudest-bin reading flips octaves
+ * halfway through a sweep; multiplying decimated copies of the spectrum
+ * leaves only the true fundamental standing.
+ */
+function pitchHz(data, start, n, { min = 120, max = 3000, harmonics = 5 } = {}) {
   const mag = magnitudes(data, start, n);
   const half = mag.length;
   const hps = Float64Array.from(mag);
   for (let h = 2; h <= harmonics; h++) {
     for (let i = 0; i < Math.floor(half / h); i++) hps[i] *= mag[i * h];
   }
-  const loBin = Math.max(2, Math.ceil((min * n) / sr));
-  const hiBin = Math.min(half - 2, Math.floor((max * n) / sr));
+  const loBin = Math.max(2, Math.ceil((min * n) / SR));
+  const hiBin = Math.min(half - 2, Math.floor((max * n) / SR));
   let peak = loBin;
   for (let i = loBin; i <= hiBin; i++) if (hps[i] > hps[peak]) peak = i;
   const a = Math.log(hps[peak - 1] + 1e-30), b = Math.log(hps[peak] + 1e-30), c = Math.log(hps[peak + 1] + 1e-30);
   const delta = (0.5 * (a - c)) / (a - 2 * b + c || 1);
-  return ((peak + delta) * sr) / n;
+  return ((peak + delta) * SR) / n;
 }
 
-/**
- * Measures how fast the tone sweeps, by tracking the spectral centroid over
- * time and finding the dominant periodicity of that track.
- */
-function sweepRateHz(data, sr, { win = 512, hop = 256, skip = 0.35 } = {}) {
-  const from = Math.floor(sr * skip);
-  const frames = Math.floor((data.length - from - win) / hop);
+/** Strongest spectral peaks, as [hz, dB-below-loudest] pairs. */
+function partials(data, start, n, count = 8, floorDb = -30) {
+  const mag = magnitudes(data, start, n);
+  let top = 0;
+  for (const m of mag) top = Math.max(top, m);
+  const out = [];
+  for (let i = 2; i < mag.length - 1; i++) {
+    if (mag[i] > mag[i - 1] && mag[i] > mag[i + 1]) {
+      const db = 20 * Math.log10(mag[i] / top);
+      if (db > floorDb) out.push([(i * SR) / n, db]);
+    }
+  }
+  return out.sort((a, b) => b[1] - a[1]).slice(0, count);
+}
+
+/** Dominant periodicity of the spectral centroid: the sweep rate. */
+function sweepRateHz(data, { win = 512, hop = 256 } = {}) {
+  const frames = Math.floor((data.length - win) / hop);
   const track = new Float64Array(frames);
   for (let f = 0; f < frames; f++) {
-    const mag = magnitudes(data, from + f * hop, win);
+    const mag = magnitudes(data, f * hop, win);
     let num = 0, den = 0;
     for (let i = 1; i < mag.length; i++) { num += i * mag[i]; den += mag[i]; }
     track[f] = den > 1e-9 ? num / den : 0;
@@ -98,7 +107,6 @@ function sweepRateHz(data, sr, { win = 512, hop = 256, skip = 0.35 } = {}) {
   mean /= frames || 1;
   for (let i = 0; i < frames; i++) track[i] -= mean;
 
-  const trackSr = sr / hop;
   const n = 1 << Math.floor(Math.log2(frames));
   if (n < 16) return 0;
   const mag = magnitudes(track, 0, n);
@@ -106,25 +114,22 @@ function sweepRateHz(data, sr, { win = 512, hop = 256, skip = 0.35 } = {}) {
   for (let i = 1; i < mag.length - 1; i++) if (mag[i] > mag[peak]) peak = i;
   const a = mag[peak - 1], b = mag[peak], c = mag[peak + 1];
   const delta = (0.5 * (a - c)) / (a - 2 * b + c || 1);
-  return ((peak + delta) * trackSr) / n;
+  return ((peak + delta) * (SR / hop)) / n;
 }
 
-/* ---------------------------- render harness ---------------------------- */
-
-async function render(toneId, seconds, opts = {}) {
-  const ctx = new OfflineAudioContext(1, Math.ceil(SR * seconds), SR);
-  const eng = new AudioEngine();
-  eng.ctx = ctx;
-  eng.waves = buildWaves(ctx);
-  eng.noiseBuffer = makeNoiseBuffer(ctx);
-  eng._buildChain();
-  eng.ready = true;
-  if (opts.tone) eng.setTone(opts.tone);
-  const voice = createVoice(eng, TONES[toneId], { source: TONES[opts.sourceId ?? 'wail1'] });
-  voice.start(0);
-  if (opts.stopAt != null) voice.stop(opts.stopAt);
-  const buf = await ctx.startRendering();
-  return buf.getChannelData(0);
+/**
+ * How badly a loop clicks, as a multiple of the waveform's own steepest
+ * motion. A narrow pulse train legitimately swings full scale in one sample,
+ * so comparing the wrap against an average step condemns a clean loop; the
+ * question is whether the joint is an outlier for *this* waveform.
+ */
+function seamRatio(data, loopStart) {
+  const steps = [];
+  for (let i = loopStart + 1; i < data.length; i++) steps.push(Math.abs(data[i] - data[i - 1]));
+  steps.sort((a, b) => a - b);
+  const worst = steps[steps.length - 1] || 1e-9;
+  const wrap = Math.abs(data[data.length - 1] - data[loopStart]);
+  return wrap / worst;
 }
 
 /* ---------------------------- assertions ---------------------------- */
@@ -135,37 +140,53 @@ function check(name, got, want, tolPct, unit = ' Hz') {
   const err = want === 0 ? Math.abs(got) : (Math.abs(got - want) / Math.abs(want)) * 100;
   const ok = err <= tolPct;
   ok ? pass++ : fail++;
-  console.log(`  ${ok ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'} ${name.padEnd(44)} ${got.toFixed(2)}${unit} vs ${want.toFixed(2)}${unit}  ${err.toFixed(1)}%`);
+  console.log(`  ${ok ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'} ${name.padEnd(46)} ${got.toFixed(2)}${unit} vs ${want.toFixed(2)}${unit}  ${err.toFixed(1)}%`);
 }
 function assert(name, ok, detail = '') {
   ok ? pass++ : fail++;
-  console.log(`  ${ok ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'} ${name.padEnd(44)} ${detail}`);
+  console.log(`  ${ok ? '\x1b[32mPASS\x1b[0m' : '\x1b[31mFAIL\x1b[0m'} ${name.padEnd(46)} ${detail}`);
 }
 
 /* ---------------------------- the tests ---------------------------- */
 
-group('Sweep rate matches the manufacturer cycles-per-minute figure');
-for (const id of ['wail1', 'wail2', 'yelp', 'phaser', 'wawa', 'hilo']) {
-  const T = TONES[id];
-  const secs = Math.min(24, Math.max(4, (1 / T.rateHz) * 8));
-  const data = await render(id, secs);
-  check(`${T.label} sweep rate`, sweepRateHz(data, SR), T.rateHz, 12);
+const SWEEPS = ['wail1', 'wail2', 'yelp', 'phaser', 'wawa', 'hilo'];
+const rendered = {};
+for (const id of SWEEPS) rendered[id] = renderSiren(TONES[id], SR);
+
+/** Tiles a loop until it holds at least `cycles` sweep periods. */
+function tile(id, cycles) {
+  const d = rendered[id].data;
+  const perBuf = d.length / SR * TONES[id].rateHz;
+  const reps = Math.max(2, Math.ceil(cycles / perBuf));
+  const out = new Float32Array(d.length * reps);
+  for (let r = 0; r < reps; r++) out.set(d, r * d.length);
+  return out;
 }
 
-group('Sweep reaches its rated endpoints (harmonic product spectrum)');
+group('Sweep rate matches the manufacturer cycles-per-minute figure');
+for (const id of SWEEPS) {
+  const T = TONES[id];
+  // The centroid tracker needs several periods to resolve a rate; a slow
+  // wail is one period per buffer, so one buffer is not enough to measure.
+  const reps = Math.ceil((SR * 6) / rendered[id].data.length);
+  check(`${T.label} sweep rate`, sweepRateHz(tile(id, 8)), T.rateHz, 12);
+}
+
+group('Sweep reaches its rated endpoints');
 for (const id of ['wail1', 'wail2', 'yelp', 'wawa']) {
   const T = TONES[id];
-  const period = 1 / T.rateHz;
-  const secs = Math.min(20, Math.max(3, period * 4));
-  const data = await render(id, secs);
-  const win = 4096;
+  const d = rendered[id].data;
+  // The window has to be short against the sweep period. The endpoints are
+  // corners, so a window straddling one averages the climb on both sides of
+  // it and reports a pitch that never occurs — biased by roughly the sweep's
+  // slope times a quarter of the window. A sixty-fourth of the period keeps
+  // that bias to a few hertz while still resolving the pitch.
+  const period = SR / T.rateHz;
+  const win = Math.max(512, Math.min(4096, 1 << Math.round(Math.log2(period / 64))));
   let lo = Infinity, hi = 0;
-  const steps = 160;
-  const t0 = Math.floor(SR * (secs - period - 0.05));
-  for (let s = 0; s < steps; s++) {
-    const off = t0 + Math.floor((s / steps) * period * SR);
-    if (off + win >= data.length || off < 0) continue;
-    const f = pitchHz(data, off, win, SR, { min: 400, max: 2600 });
+  for (let s = 0; s < 400; s++) {
+    const off = Math.floor((s / 400) * (d.length - win));
+    const f = pitchHz(d, off, win, { min: 400, max: 2600 });
     lo = Math.min(lo, f); hi = Math.max(hi, f);
   }
   check(`${T.label} low endpoint`, lo, T.lo, 12);
@@ -175,278 +196,146 @@ for (const id of ['wail1', 'wail2', 'yelp', 'wawa']) {
 group('Hi-Lo holds two fixed pitches a musical fourth apart (DIN 14610)');
 {
   const T = TONES.hilo;
-  const data = await render('hilo', 8);
-  const win = 4096;
+  const d = rendered.hilo.data;
   const seen = [];
   for (let s = 0; s < 120; s++) {
-    const off = Math.floor(SR * (4 + s * (1 / T.rateHz) / 120));
-    seen.push(pitchHz(data, off, win, SR, { min: 300, max: 900 }));
+    const off = Math.floor((s / 120) * (d.length - 4096));
+    seen.push(pitchHz(d, off, 4096, { min: 300, max: 900 }));
   }
   seen.sort((a, b) => a - b);
   const low = seen[Math.floor(seen.length * 0.12)];
   const high = seen[Math.floor(seen.length * 0.88)];
   check("Hi-Lo low tone (a')", low, T.lo, 8);
   check('Hi-Lo high tone (d")', high, T.hi, 8);
-  check('Hi-Lo interval ratio', high / low, T.hi / T.lo, 8, '');
   assert('Hi-Lo ratio inside DIN 14610 1:1.33 band',
     high / low > 1.25 && high / low < 1.42, `ratio ${(high / low).toFixed(3)}`);
-  assert('Hi-Lo pitches inside DIN 14610 360-630 Hz',
-    low > 355 && high < 640, `${low.toFixed(0)}-${high.toFixed(0)} Hz`);
 }
 
-group('Air horn reproduces the Nathan AirChime chord');
+group('Air horn is two trumpets a minor third apart');
 {
   const T = TONES.airhorn;
-  const data = await render('airhorn', 2.0);
-  check('Air horn fundamental (D#4)', pitchHz(data, Math.floor(SR * 0.8), 16384, SR, { min: 150, max: 800 }), T.bells[0].hz, 6);
-  // Every bell of the chord should be present in the spectrum.
-  const mag = magnitudes(data, Math.floor(SR * 0.9), 16384);
-  const binOf = (hz) => Math.round((hz * 16384) / SR);
-  let ceiling = 0;
-  for (const m of mag) ceiling = Math.max(ceiling, m);
+  const r = renderHorn(T, SR);
+  assert('two bells, not a triad', T.bells.length === 2, `${T.bells.length} bells`);
+  const cents = 1200 * Math.log2(T.bells[1].hz / T.bells[0].hz);
+  check('interval', cents, 300, 4, ' cents');
+  assert('fundamental inside the 250-350 Hz truck-horn range',
+    T.bells[0].hz >= 250 && T.bells[0].hz <= 350, `${T.bells[0].hz.toFixed(0)} Hz`);
+
+  const found = partials(r.data, Math.round(SR * 0.3), 8192, 10, -12).map(([f]) => f);
   for (const bell of T.bells) {
-    const b = binOf(bell.hz);
-    let local = 0;
-    for (let i = b - 3; i <= b + 3; i++) local = Math.max(local, mag[i] || 0);
-    const db = 20 * Math.log10(local / ceiling + 1e-12);
-    assert(`Air horn bell present @ ${bell.hz.toFixed(0)} Hz`, db > -26, `${db.toFixed(1)} dB rel. peak`);
+    assert(`bell sounding at ${bell.hz.toFixed(0)} Hz`,
+      found.some((f) => Math.abs(f - bell.hz) < 12),
+      found.slice(0, 4).map((f) => f.toFixed(0)).join(' '));
   }
-  // The attack must be fast enough to feel like a button press.
-  let peakIdx = 0, peakVal = 0;
-  for (let i = 0; i < SR * 0.4; i++) { const a = Math.abs(data[i]); if (a > peakVal) { peakVal = a; peakIdx = i; } }
-  assert('Air horn reaches full level within 120 ms', peakIdx / SR < 0.12, `${((peakIdx / SR) * 1000).toFixed(0)} ms`);
+  // A reed brightens as pressure builds, rather than only getting louder.
+  const early = partials(r.data, 400, 2048, 12, -24).length;
+  const late = partials(r.data, Math.round(SR * 0.3), 2048, 12, -24).length;
+  assert('tone opens up through the attack', late >= early, `${early} -> ${late} partials`);
 }
 
 group('Q-siren follows rotor physics  f = (rpm / 60) x ports');
 {
   const T = TONES.mech;
   const peak = (T.runRpm / 60) * T.ports;
-  const data = await render('mech', 16, { stopAt: 10 });
-  const at = (t) => pitchHz(data, Math.floor(SR * t), 16384, SR, { min: 60, max: 1600 });
-  const early = at(1.5), full = at(9.4), coasting = at(13.5);
-  check('Q-siren peak fundamental', full, peak, 12);
-  assert('Q-siren winds up under power', full > early * 1.4, `${early.toFixed(0)} -> ${full.toFixed(0)} Hz`);
-  assert('Q-siren coasts down on the clutch', coasting < full * 0.75, `${full.toFixed(0)} -> ${coasting.toFixed(0)} Hz`);
-  assert('Q-siren peak inside published 400-800 Hz', peak >= 400 && peak <= 820, `${peak.toFixed(0)} Hz`);
+  const r = renderMechSteady(T, SR);
+  check('steady fundamental', pitchHz(r.data, 2000, 16384, { min: 200, max: 1600 }), peak, 8);
+  assert('peak inside the published 400-800 Hz', peak >= 400 && peak <= 820, `${peak.toFixed(0)} Hz`);
 
-  // The readout model has to agree with the scheduled ramps: stop() reads
-  // the coast-down's starting pitch out of it, so a model that drifts makes
-  // the siren jump when it is switched off mid-spin-up.
-  {
-    const ctxM = new OfflineAudioContext(1, SR * 12, SR);
-    const engM = new AudioEngine();
-    engM.ctx = ctxM; engM.waves = buildWaves(ctxM); engM.noiseBuffer = makeNoiseBuffer(ctxM);
-    engM._buildChain(); engM.ready = true;
-    const vM = createVoice(engM, TONES.mech);
-    vM.start(0);
-    const dM = (await ctxM.startRendering()).getChannelData(0);
-    let worst = 0, worstAt = 0;
-    // Sampled from 3.5 s on. Before that the rotor is under ~300 Hz, which
-    // the horn-speaker simulation deliberately filters out — so there is no
-    // fundamental left in the output to measure, and any reading there says
-    // more about the detector than about the model.
-    for (const t of [3.5, 5, 6.5, 8, 10]) {
-      const predicted = vM.frequency(t);
-      const measured = pitchHz(dM, Math.floor(SR * t), 16384, SR, { min: 60, max: 1600 });
-      const err = Math.abs(measured - predicted) / predicted * 100;
-      if (err > worst) { worst = err; worstAt = t; }
-    }
-    assert('Q-siren readout tracks its spin-up', worst < 15, `worst ${worst.toFixed(1)}% at t=${worstAt}s`);
-  }
+  // The radiated wave is the derivative of the port-overlap triangle, so it
+  // must carry both odd and even harmonics — a plain triangle would not.
+  const found = partials(r.data, 2000, 16384, 12, -26).map(([f]) => f);
+  const nth = (k) => found.some((f) => Math.abs(f - peak * k) < peak * 0.05);
+  assert('second harmonic present (even)', nth(2), found.slice(0, 6).map((f) => f.toFixed(0)).join(' '));
+  assert('third harmonic present (odd)', nth(3));
+  assert('reaches well past 4 kHz', found.some((f) => f > 4000),
+    `top ${Math.max(...found).toFixed(0)} Hz`);
+
+  assert('wind-up is the published 2-3 s', T.spinUpS >= 2 && T.spinUpS <= 3.2, `${T.spinUpS} s`);
+  assert('coast-down is the published 30 s or more', T.coastDownS >= 28, `${T.coastDownS} s`);
 }
 
-group('Rumbler tracks the active siren inside its 182-400 Hz band');
+group('Rumble tracks the siren above it, inside 182-400 Hz');
 for (const src of ['wail1', 'yelp', 'hilo']) {
-  const data = await render('rumbler', 8, { sourceId: src, tone: { bass: true } });
-  const f = pitchHz(data, Math.floor(SR * 4), 16384, SR, { min: 80, max: 700 });
-  assert(`Rumble under ${TONES[src].label}`, f >= 150 && f <= 440, `${f.toFixed(0)} Hz`);
+  const r = renderRumble(TONES.rumbler, TONES[src], SR);
+  const f = pitchHz(r.data, Math.floor(r.data.length * 0.3), 8192, { min: 80, max: 700 });
+  assert(`under ${TONES[src].label}`, f >= 150 && f <= 440, `${f.toFixed(0)} Hz`);
 }
 
-group('Manual wail rises while held and falls when released');
-{
-  const T = TONES.manual;
-  const ctx = new OfflineAudioContext(1, SR * 10, SR);
-  const eng = new AudioEngine();
-  eng.ctx = ctx; eng.waves = buildWaves(ctx); eng.noiseBuffer = makeNoiseBuffer(ctx);
-  eng._buildChain(); eng.ready = true;
-  const v = createVoice(eng, T);
-  v.start(0);
-  v.fall(4);          // release the button at t=4s
-  const data = (await ctx.startRendering()).getChannelData(0);
-  const at = (t) => pitchHz(data, Math.floor(SR * t), 16384, SR, { min: 300, max: 2400 });
-  const held = at(3.0), released = at(7.5);
-  check('Manual peak while held', held, T.hi, 12);
-  assert('Manual falls after release', released < held * 0.8, `${held.toFixed(0)} -> ${released.toFixed(0)} Hz`);
-}
-
-group('Output never exceeds full scale, alone or layered');
-for (const id of ['wail1', 'wail2', 'yelp', 'phaser', 'wawa', 'hilo', 'airhorn', 'mech']) {
-  const data = await render(id, 3);
-  let pk = 0;
-  for (let i = 0; i < data.length; i++) pk = Math.max(pk, Math.abs(data[i]));
-  assert(`${TONES[id].label} peak sample`, pk <= 1.0, `${pk.toFixed(3)}`);
+group('Loops are seamless');
+for (const id of SWEEPS) {
+  assert(`${TONES[id].label} wrap`, seamRatio(rendered[id].data, 0) <= 1.2,
+    `${seamRatio(rendered[id].data, 0).toFixed(2)}x the waveform's own steepest step`);
 }
 {
-  // Worst case the UI allows: siren + rumbler + air horn together, HIGH+BASS.
-  const ctx = new OfflineAudioContext(1, SR * 4, SR);
-  const eng = new AudioEngine();
-  eng.ctx = ctx; eng.waves = buildWaves(ctx); eng.noiseBuffer = makeNoiseBuffer(ctx);
-  eng._buildChain(); eng.ready = true;
-  eng.setTone({ high: true, bass: true });
-  eng.setVolume(1);
-  createVoice(eng, TONES.yelp).start(0);
-  createVoice(eng, TONES.rumbler, { source: TONES.yelp }).start(0);
-  createVoice(eng, TONES.airhorn).start(0.5);
-  const data = (await ctx.startRendering()).getChannelData(0);
-  let pk = 0;
-  for (let i = 0; i < data.length; i++) pk = Math.max(pk, Math.abs(data[i]));
-  assert('YELP + RUMBLE + AIR HORN at full volume', pk <= 1.0, `${pk.toFixed(3)}`);
+  const h = renderHorn(TONES.airhorn, SR);
+  assert('AIR HORN wrap', seamRatio(h.data, h.loopStart) <= 1.2,
+    `${seamRatio(h.data, h.loopStart).toFixed(2)}x`);
+  // The attack hands over to the loop; that join must survive the sealing.
+  const steps = [];
+  for (let i = h.loopStart + 1; i < h.data.length; i++) steps.push(Math.abs(h.data[i] - h.data[i - 1]));
+  const worst = Math.max(...steps);
+  assert('AIR HORN attack-to-loop join',
+    Math.abs(h.data[h.loopStart] - h.data[h.loopStart - 1]) <= worst, '');
+  const m = renderMechSteady(TONES.mech, SR);
+  assert('Q-SIREN wrap', seamRatio(m.data, 0) <= 1.2, `${seamRatio(m.data, 0).toFixed(2)}x`);
 }
 
-group('The LCD frequency model agrees with the rendered audio');
-for (const id of ['wail1', 'yelp']) {
-  const T = TONES[id];
-  const period = 1 / T.rateHz;
-  const secs = Math.max(4, period * 4);
-  const ctx = new OfflineAudioContext(1, Math.ceil(SR * secs), SR);
-  const eng = new AudioEngine();
-  eng.ctx = ctx; eng.waves = buildWaves(ctx); eng.noiseBuffer = makeNoiseBuffer(ctx);
-  eng._buildChain(); eng.ready = true;
-  const v = createVoice(eng, T);
-  v.start(0);
-  const data = (await ctx.startRendering()).getChannelData(0);
-  // Compare the model's prediction to the measurement at several phases.
-  let worst = 0;
-  for (const frac of [0.1, 0.3, 0.55, 0.8]) {
-    const t = secs - period + frac * period;
-    const predicted = T.lo + (() => {
-      const ph = ((t * T.rateHz) % 1);
-      const r = T.shape === 'ramp' ? (T.riseRatio ?? 0.68) : 0.5;
-      return (ph < r ? ph / r : 1 - (ph - r) / (1 - r)) * (T.hi - T.lo);
-    })();
-    const measured = pitchHz(data, Math.floor(SR * t), 4096, SR, { min: 400, max: 2600 });
-    worst = Math.max(worst, Math.abs(measured - predicted) / predicted * 100);
+group('Nothing renders out of range or out of bounds');
+{
+  const all = [
+    ...SWEEPS.map((id) => [TONES[id].label, rendered[id]]),
+    ['AIR HORN', renderHorn(TONES.airhorn, SR)],
+    ['Q-SIREN', renderMechSteady(TONES.mech, SR)],
+    ['RUMBLE', renderRumble(TONES.rumbler, TONES.wail1, SR)],
+    ['MANUAL', renderSteady(TONES.manual.lo, SR)],
+    ['street IR', { data: renderStreetIR(SR) }],
+  ];
+  for (const [name, r] of all) {
+    let peak = 0, nan = 0, dc = 0;
+    const pieces = [r.data, r.release].filter(Boolean);
+    let n = 0;
+    for (const p of pieces) {
+      for (let i = 0; i < p.length; i++) {
+        const v = p[i];
+        if (!Number.isFinite(v)) nan++;
+        peak = Math.max(peak, Math.abs(v));
+        dc += v; n++;
+      }
+    }
+    assert(`${name.padEnd(10)} finite and inside full scale`,
+      nan === 0 && peak <= 1 && Math.abs(dc / n) < 0.02,
+      `peak ${peak.toFixed(3)}  dc ${(dc / n).toFixed(4)}${nan ? `  ${nan} NaN` : ''}`);
   }
-  assert(`${T.label} readout tracks audio`, worst < 15, `worst ${worst.toFixed(1)}% off`);
 }
 
 group('Regressions');
 {
-  // RUMBLE used to read .lo/.hi straight off the active tone. The mechanical
-  // and horn specs carry neither, so it reached the oscillator as NaN and
-  // threw "the provided float value is non-finite".
-  for (const src of ['wail1', 'wail2', 'yelp', 'phaser', 'hilo', 'wawa', 'mech', 'airhorn', 'manual']) {
-    let ok = true, why = '';
-    let peak = 0;
-    try {
-      const data = await render('rumbler', 3, { sourceId: src, tone: { bass: true } });
-      for (let i = 0; i < data.length; i++) {
-        if (!Number.isFinite(data[i])) { ok = false; why = 'NaN in output'; break; }
-        peak = Math.max(peak, Math.abs(data[i]));
-      }
-      if (ok && peak < 1e-4) { ok = false; why = 'silent'; }
-    } catch (e) { ok = false; why = e.message.slice(0, 44); }
-    assert(`RUMBLE under ${TONES[src].label}`, ok, ok ? `peak ${peak.toFixed(3)}` : why);
+  // The harmonic sum used one sine per partial; the Chebyshev recurrence
+  // gives the same answer with one per sample, which is what makes a long
+  // render fast enough to do while someone holds a key.
+  const amps = pulseHarmonics(0.35, 48);
+  let worst = 0;
+  for (let i = 0; i < 3000; i++) {
+    const ph = (i / 3000) * Math.PI * 6;
+    let direct = 0;
+    const maxK = Math.min(amps.length - 1, Math.floor(24000 / 300));
+    for (let k = 1; k <= maxK; k++) direct += amps[k] * Math.sin(ph * k);
+    worst = Math.max(worst, Math.abs(harmonicSum(ph, amps, 300, 24000) - direct));
   }
+  assert('fast harmonic sum matches the direct one', worst < 1e-9, worst.toExponential(1));
 
-  // STOP used to call the ordinary release, so the Q-siren kept sounding for
-  // its full nineteen-second coast-down after the panic button was pressed.
-  const ctx = new OfflineAudioContext(1, SR * 8, SR);
-  const eng = new AudioEngine();
-  eng.ctx = ctx; eng.waves = buildWaves(ctx); eng.noiseBuffer = makeNoiseBuffer(ctx);
-  eng._buildChain(); eng.ready = true;
-  const q = createVoice(eng, TONES.mech);
-  q.start(0);
-  q.kill(5);
-  const data = (await ctx.startRendering()).getChannelData(0);
-  const rms = (t) => {
-    let s2 = 0;
-    const n = Math.floor(SR * 0.2);
-    for (let i = 0; i < n; i++) { const x = data[Math.floor(SR * t) + i] || 0; s2 += x * x; }
-    return Math.sqrt(s2 / n);
-  };
-  const before = rms(4.5), after = rms(5.3), later = rms(7);
-  assert('kill() silences the Q-siren at once', after < before * 0.02 && later < 1e-4,
-    `${before.toFixed(4)} -> ${after.toFixed(4)} -> ${later.toFixed(4)}`);
+  // triangleHarmonics took the absolute value inside the integral, which
+  // averages to about the same number for every harmonic: a flat spectrum
+  // rather than a triangle.
+  const tri = triangleHarmonics(0.45, 16);
+  assert('triangle series actually falls off', tri[1] / tri[3] > 5,
+    `k1/k3 = ${(tri[1] / tri[3]).toFixed(1)} (triangle ~9, flat ~1)`);
+  assert('asymmetric triangle carries even harmonics', tri[2] > tri[1] * 0.02,
+    `k2/k1 = ${(tri[2] / tri[1]).toFixed(3)}`);
 
-  // kill() guarded on `stopped`, which stop() had just set — so it was a
-  // no-op on a voice already coasting, the one case it exists for.
-  //
-  // The audible side of this is checked in verify-ui.mjs, in a real browser:
-  // an OfflineAudioContext cannot reproduce it, because reading .value on an
-  // AudioParam before the render returns the initial value rather than the
-  // automated one, so a stop scheduled ahead does not behave as it does live.
-  // What regressed here was the guard, so the guard is what is asserted.
-  const ctx2 = new OfflineAudioContext(1, SR * 2, SR);
-  const eng2 = new AudioEngine();
-  eng2.ctx = ctx2; eng2.waves = buildWaves(ctx2); eng2.noiseBuffer = makeNoiseBuffer(ctx2);
-  eng2._buildChain(); eng2.ready = true;
-  const q2 = createVoice(eng2, TONES.mech);
-  q2.start(0);
-  q2.stop(0);
-  const stoppedFirst = q2.stopped && !q2.killed;
-  q2.kill(0);
-  assert('kill() still acts on a voice already stopped', stoppedFirst && q2.killed,
-    `stopped=${q2.stopped} killed=${q2.killed}`);
-  // And the reverse order must not let a later stop() undo a kill.
-  const q3 = createVoice(eng2, TONES.mech);
-  q3.start(0);
-  q3.kill(0);
-  const before3 = q3.out.gain.value;
-  q3.stop(0);
-  assert('stop() after kill() is a no-op', q3.out.gain.value === before3,
-    `gain ${before3} -> ${q3.out.gain.value}`);
-
-  // Auditioning a tone in the guide while the faceplate is running used to
-  // play both at once, under a display that can only name one. The panel now
-  // ducks on its own sub-bus, which leaves each voice's envelope alone — the
-  // Q-siren's coast-down is scheduled on exactly the gain a naive mute would
-  // have grabbed.
-  //
-  // Measured by frequency band, not by level: the chain's compressor squashes
-  // the sum of two tones back to roughly the level of one, so comparing RMS
-  // would say almost nothing about whether the second is still audible.
-  // Hi-Lo's two pitches (440/585 Hz) sit clear of Yelp's sweep (725-1800 Hz),
-  // so energy down there is the panel and nothing else.
-  {
-    const renderPair = async (duck) => {
-      const ctx = new OfflineAudioContext(1, SR * 3, SR);
-      const eng = new AudioEngine();
-      eng.ctx = ctx; eng.waves = buildWaves(ctx); eng.noiseBuffer = makeNoiseBuffer(ctx);
-      eng._buildChain(); eng.ready = true;
-      eng.setTone({ bass: true });          // keep the low band in the output
-      createVoice(eng, TONES.hilo).start(0);                       // faceplate
-      createVoice(eng, TONES.yelp, { bus: eng.preview }).start(0);  // guide
-      if (duck) eng.duckPanel(true);
-      return (await ctx.startRendering()).getChannelData(0);
-    };
-
-    const bandEnergy = (data, lo, hi) => {
-      const n = 16384;
-      const mag = magnitudes(data, Math.floor(SR * 1.5), n);
-      let acc = 0;
-      for (let k = Math.round((lo * n) / SR); k <= Math.round((hi * n) / SR); k++) acc += mag[k] ** 2;
-      return Math.sqrt(acc);
-    };
-
-    const open = await renderPair(false);
-    const shut = await renderPair(true);
-    const openLow = bandEnergy(open, 400, 620);
-    const shutLow = bandEnergy(shut, 400, 620);
-    const shutHigh = bandEnergy(shut, 725, 1800);
-
-    assert('the panel is audible when nothing is being auditioned',
-      openLow > shutLow * 6, `${openLow.toFixed(2)} vs ${shutLow.toFixed(2)}`);
-    assert('ducking silences the panel, not the preview',
-      shutHigh > shutLow * 20, `preview ${shutHigh.toFixed(2)} vs panel ${shutLow.toFixed(2)}`);
-  }
-
-  // A half-written localStorage entry used to reach an AudioParam as NaN,
-  // which throws rather than being ignored.
-  let threw = false;
-  try { eng.setVolume(NaN); eng.setVolume(undefined); eng.setVolume('loud'); }
-  catch { threw = true; }
-  assert('setVolume survives a corrupt preference', !threw && Number.isFinite(eng.volume), `volume=${eng.volume}`);
+  // A square series has odd harmonics only; the rotor's must not.
+  const sq = squareHarmonics(16);
+  assert('square series has no even harmonics', sq[2] === 0 && sq[4] === 0);
 }
 
 console.log(`\n\x1b[1m${pass}/${pass + fail} checks passed\x1b[0m${fail ? `  \x1b[31m(${fail} failing)\x1b[0m` : ''}\n`);

@@ -181,7 +181,7 @@ body {
 
 .row { display: flex; align-items: center; gap: 1.1em; }
 .row--top     { justify-content: space-between; }
-.row--circles { justify-content: space-between; padding: 0 1.2em; }
+.row--circles { justify-content: space-between; padding: 0 .9em; }
 .row--bottom  { align-items: stretch; gap: .9em; }
 .col { display: flex; flex-direction: column; gap: .9em; justify-content: space-between; }
 
@@ -597,23 +597,25 @@ body.is-locked { overflow: hidden; }
    Brand
    ==================================================================== */
 
+/* Stacked, because it now sits in the round gap at the middle of the panel
+   rather than across the bezel: a badge reads better than a strip there. */
 .brand {
-  display: flex; align-items: center; justify-content: center;
-  gap: .7em;
-  margin: -.2em 0 .1em;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: .45em;
+  flex: none;
 }
 .brand__mark {
-  width: 4em; height: 2.45em;
+  width: 5.2em; height: 3.2em;
   /* The mark carries its own two colours, so it must not inherit one. */
   flex: none;
 }
 .brand__name {
-  font-size: 1.5em;
+  font-size: 1.45em;
   font-weight: 400;
-  letter-spacing: .1em;
+  letter-spacing: .09em;
   /* Same grey as the keys: this reads as printing on the panel, not as UI. */
   color: #aab2ae;
-  text-transform: none;
   line-height: 1;
 }
 .brand__name b { font-weight: 800; color: #e6ebe6; letter-spacing: .08em; }

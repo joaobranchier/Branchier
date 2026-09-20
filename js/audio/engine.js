@@ -1,56 +1,54 @@
 /**
- * engine.js — AudioContext lifecycle, the master signal chain, and the iOS
+ * engine.js — AudioContext lifecycle, the master chain, and the iOS
  * workarounds that make any of this audible on an iPhone.
  *
  * Signal flow:
  *
- *   voices ─► voiceBus ─► horn HPF ─► presence peak ─► air LPF
- *                           └─ speaker simulation ─┘
- *          ─► bass shelf ─► treble shelf ─► saturator ─► compressor
- *          ─► master gain ─► limiter ─► ceiling ─► destination
+ *   voice ─► its own radiator stage ─► panelBus ─┬─► dry ──────────────┐
+ *                                                └─► send ─► convolver ┤
+ *   guide preview ─────────────────► previewBus ─┬─► dry ──────────────┤
+ *                                                └─► send ─► convolver ┤
+ *                                                                      ▼
+ *                        tone stack (HIGH / BASS) ─► master ─► limiter ─► ceiling ─► out
  *
- * The speaker simulation is what separates this from a synthesizer playing
- * a sweep: a real siren speaker is a horn-loaded compression driver that
- * reproduces roughly 300 Hz–6 kHz with a hard presence peak near 1.6 kHz.
- * Passing the tone through that shape is most of the realism.
+ * Two things that used to be here are gone. A 6:1 compressor sat across the
+ * whole mix and pumped in step with every sweep, and a tanh stage sat
+ * downstream of two detuned carriers, so it generated intermodulation
+ * between them rather than the grit it was meant to. Distortion now happens
+ * inside each voice, where a driver actually distorts, and the master chain
+ * only shapes tone and guards the ceiling.
  */
 
-import { buildWaves, makeSaturationCurve, makeNoiseBuffer, makeCeilingCurve } from './waves.js';
+import { makeCeilingCurve } from './waves.js';
+import { renderStreetIR } from './render.js';
 
-/** HIGH and BASS on the faceplate select one of four voicings. */
+/** HIGH and BASS select one of four voicings. Pure tone shaping: the horn
+ *  and driver response belong to the voice now, not to the master bus. */
 const VOICINGS = {
-  // key: `${high?1:0}${bass?1:0}`
-  '00': { hp: 260, peak: 4.0, peakHz: 1500, lowShelf: 0,   highShelf: 0,   lp: 7000, label: 'FLAT' },
-  '10': { hp: 480, peak: 7.5, peakHz: 2400, lowShelf: -6,  highShelf: 5.5, lp: 9000, label: 'HIGH' },
-  '01': { hp: 95,  peak: 2.5, peakHz: 1200, lowShelf: 9,   highShelf: -3,  lp: 5200, label: 'BASS' },
-  '11': { hp: 130, peak: 6.0, peakHz: 1800, lowShelf: 6,   highShelf: 4,   lp: 9000, label: 'FULL' },
+  '00': { low: 0,   high: 0,   label: 'FLAT' },
+  '10': { low: -6,  high: 5.5, label: 'HIGH' },
+  '01': { low: 9,   high: -3,  label: 'BASS' },
+  '11': { low: 6,   high: 4,   label: 'FULL' },
 };
 
-const RAMP = 0.035; // seconds — short enough to feel instant, long enough not to click
+const RAMP = 0.035;
 
 export class AudioEngine {
   constructor() {
     /** @type {AudioContext|null} */
     this.ctx = null;
     this.ready = false;
-    this.waves = null;
-    this.noiseBuffer = null;
     this._silentEl = null;
     this._volume = 0.85;
     this._high = false;
     this._bass = false;
     this._onStateChange = null;
+    this._unlocking = null;
   }
 
-  /**
-   * Must be called from inside a real user gesture (touchstart/pointerdown).
-   * Safari will not start an AudioContext otherwise, and the audio session
-   * category can only be claimed before the context exists.
-   */
   async unlock() {
     // Two keys pressed together both call this before either resolves, and
-    // without the shared promise that builds a second AudioContext — double
-    // the CPU, and `ready` flapping between them.
+    // without the shared promise that builds a second AudioContext.
     if (this._unlocking) return this._unlocking;
     if (!this.ready) {
       this._unlocking = this._unlock().finally(() => { this._unlocking = null; });
@@ -67,9 +65,9 @@ export class AudioEngine {
       return this.ctx;
     }
 
-    // 1. Claim the 'playback' audio session BEFORE the context is created.
-    //    Without this Safari files a bare AudioContext under 'ambient', which
-    //    the hardware ring/silent switch mutes outright. Safari 16.4+.
+    // Claim the 'playback' audio session BEFORE the context is created.
+    // Without this Safari files a bare AudioContext under 'ambient', which
+    // the hardware ring/silent switch mutes outright. Safari 16.4+.
     try {
       if (navigator.audioSession) navigator.audioSession.type = 'playback';
     } catch { /* not supported — the silent-element fallback below covers it */ }
@@ -77,18 +75,9 @@ export class AudioEngine {
     const Ctor = window.AudioContext || window.webkitAudioContext;
     if (!Ctor) throw new Error('Web Audio API indisponível neste navegador.');
 
-    // 'interactive' asks for the smallest output buffer the device allows,
-    // which is what keeps the air horn feeling like a button and not a lag.
     this.ctx = new Ctor({ latencyHint: 'interactive' });
-
-    // 2. Fallback for iOS < 16.4: a looping silent media element keeps the
-    //    session in a playback category the silent switch does not touch.
     this._startSilentKeepalive();
-
     await this.ctx.resume().catch(() => {});
-
-    this.waves = buildWaves(this.ctx);
-    this.noiseBuffer = makeNoiseBuffer(this.ctx);
     this._buildChain();
 
     this.ctx.addEventListener?.('statechange', () => {
@@ -106,8 +95,7 @@ export class AudioEngine {
     const el = document.createElement('audio');
     el.setAttribute('playsinline', '');
     el.loop = true;
-    el.volume = 0.001; // not 0: some iOS builds skip processing a truly muted element
-    // 0.05 s of silent WAV, inline so it works with no network.
+    el.volume = 0.001; // not 0: some iOS builds skip processing a muted element
     el.src = 'data:audio/wav;base64,UklGRjIAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQ4AAAAAAAAAAAAAAAAAAAAAAA==';
     el.play().catch(() => {});
     this._silentEl = el;
@@ -116,33 +104,42 @@ export class AudioEngine {
   _buildChain() {
     const ctx = this.ctx;
 
-    // Everything a voice makes lands here.
-    this.voiceBus = ctx.createGain();
-    this.voiceBus.gain.value = 1;
+    this.voiceSum = ctx.createGain();
 
-    // Two sub-buses, so the panel can be ducked under a tone being auditioned
-    // in the guide without touching any individual voice's envelope. Reaching
-    // into a voice's own gain would fight the Q-siren's nineteen-second
-    // coast-down, which is scheduled on exactly that parameter.
-    this.panelBus = ctx.createGain();
-    this.previewBus = ctx.createGain();
-    this.panelBus.connect(this.voiceBus);
-    this.previewBus.connect(this.voiceBus);
+    // --- street reflections ------------------------------------------
+    // Nothing outdoors is heard dry. A siren in a street arrives with a
+    // handful of hard reflections off buildings and road; adding even a
+    // little does more for believability than any spectral tweak, because a
+    // perfectly dry tone is the one thing a real one never is.
+    this.convolver = ctx.createConvolver();
+    const ir = renderStreetIR(ctx.sampleRate, 0.45);
+    const irBuf = ctx.createBuffer(1, ir.length, ctx.sampleRate);
+    irBuf.getChannelData(0).set(ir);
+    this.convolver.buffer = irBuf;
+    this.convolver.normalize = false;
 
-    // --- speaker / horn simulation -----------------------------------
-    this.hp = ctx.createBiquadFilter();
-    this.hp.type = 'highpass';
-    this.hp.Q.value = 0.707;
+    this.wet = ctx.createGain();
+    this.wet.gain.value = 0.55;
+    this.convolver.connect(this.wet).connect(this.voiceSum);
 
-    this.presence = ctx.createBiquadFilter();
-    this.presence.type = 'peaking';
-    this.presence.Q.value = 1.1;
+    // --- two source buses, each with its own dry and send -------------
+    // Ducking a bus takes its reflections with it, which is what the guide's
+    // preview needs: the faceplate has to disappear completely, not linger
+    // as a reverb tail under the tone being auditioned.
+    const makeBus = () => {
+      const bus = ctx.createGain();
+      const dry = ctx.createGain();
+      const send = ctx.createGain();
+      dry.gain.value = 1;
+      send.gain.value = 0.32;
+      bus.connect(dry).connect(this.voiceSum);
+      bus.connect(send).connect(this.convolver);
+      return bus;
+    };
+    this.panelBus = makeBus();
+    this.previewBus = makeBus();
 
-    this.lp = ctx.createBiquadFilter();
-    this.lp.type = 'lowpass';
-    this.lp.Q.value = 0.707;
-
-    // --- HIGH / BASS tone stack ---------------------------------------
+    // --- HIGH / BASS ---------------------------------------------------
     this.lowShelf = ctx.createBiquadFilter();
     this.lowShelf.type = 'lowshelf';
     this.lowShelf.frequency.value = 240;
@@ -151,23 +148,11 @@ export class AudioEngine {
     this.highShelf.type = 'highshelf';
     this.highShelf.frequency.value = 3200;
 
-    // --- amplifier character -------------------------------------------
-    this.sat = ctx.createWaveShaper();
-    this.sat.curve = makeSaturationCurve(2.2);
-    this.sat.oversample = '4x';
-
-    this.comp = ctx.createDynamicsCompressor();
-    this.comp.threshold.value = -16;
-    this.comp.knee.value = 8;
-    this.comp.ratio.value = 6;
-    this.comp.attack.value = 0.004;
-    this.comp.release.value = 0.18;
-
     this.master = ctx.createGain();
     this.master.gain.value = this._volume;
 
-    // A second, fast compressor acting as a brickwall so that layering
-    // (MIX mode, or siren + rumbler + horn at once) can never clip the DAC.
+    // A fast brickwall so layering — MIX, or siren plus rumble plus horn —
+    // can never clip the DAC.
     this.limiter = ctx.createDynamicsCompressor();
     this.limiter.threshold.value = -1.5;
     this.limiter.knee.value = 0;
@@ -175,26 +160,22 @@ export class AudioEngine {
     this.limiter.attack.value = 0.001;
     this.limiter.release.value = 0.06;
 
-    // Absolute ceiling. The compressor above shapes the dynamics; this
-    // guarantees the sample value itself never leaves [-1, 1].
+    // The compressor above is a limiter, not a brickwall: a fast transient
+    // slips past its attack. This guarantees the sample itself stays in range.
     this.ceiling = ctx.createWaveShaper();
     this.ceiling.curve = makeCeilingCurve();
     this.ceiling.oversample = '2x';
 
-    // Analyser tap for the on-screen level meter.
     this.analyser = ctx.createAnalyser();
     this.analyser.fftSize = 256;
     this.analyser.smoothingTimeConstant = 0.72;
 
-    this.voiceBus
-      .connect(this.hp).connect(this.presence).connect(this.lp)
+    this.voiceSum
       .connect(this.lowShelf).connect(this.highShelf)
-      .connect(this.sat).connect(this.comp)
       .connect(this.master).connect(this.limiter)
       .connect(this.ceiling).connect(ctx.destination);
 
     this.ceiling.connect(this.analyser);
-
     this._applyVoicing(0);
   }
 
@@ -204,10 +185,7 @@ export class AudioEngine {
   /** Where a tone being auditioned in the guide connects. */
   get preview() { return this.previewBus; }
 
-  /**
-   * Fades the faceplate down while the guide auditions a tone, so two sirens
-   * are never heard at once under a display that can only name one.
-   */
+  /** Fades the faceplate out while the guide auditions a tone. */
   duckPanel(on) {
     if (!this.ready) return;
     this.panelBus.gain.setTargetAtTime(on ? 0 : 1, this.now, 0.03);
@@ -217,11 +195,9 @@ export class AudioEngine {
 
   setVolume(v) {
     // A corrupt stored preference used to arrive here as NaN, and an
-    // AudioParam given NaN throws outright rather than ignoring it.
+    // AudioParam given NaN throws rather than ignoring it.
     this._volume = Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0.8;
-    if (this.ready) {
-      this.master.gain.setTargetAtTime(this._volume, this.now, 0.02);
-    }
+    if (this.ready) this.master.gain.setTargetAtTime(this._volume, this.now, 0.02);
   }
   get volume() { return this._volume; }
 
@@ -241,13 +217,8 @@ export class AudioEngine {
     const t = this.now;
     const set = (param, value) =>
       ramp ? param.setTargetAtTime(value, t, ramp) : (param.value = value);
-
-    set(this.hp.frequency, v.hp);
-    set(this.presence.frequency, v.peakHz);
-    set(this.presence.gain, v.peak);
-    set(this.lp.frequency, v.lp);
-    set(this.lowShelf.gain, v.lowShelf);
-    set(this.highShelf.gain, v.highShelf);
+    set(this.lowShelf.gain, v.low);
+    set(this.highShelf.gain, v.high);
   }
 
   /** Peak level 0..1, for the faceplate meter. */
@@ -266,17 +237,16 @@ export class AudioEngine {
   /**
    * Belt-and-braces mute for STOP. The controller kills each voice
    * individually, which is what actually stops the sound; this catches
-   * anything that escaped its bookkeeping and covers the gap with a short
-   * ramp rather than a click.
+   * anything that escaped its bookkeeping.
    */
   panic() {
     if (!this.ready) return;
     const t = this.now;
     this.panelBus.gain.cancelScheduledValues(t);
     this.panelBus.gain.setValueAtTime(1, t);
-    this.voiceBus.gain.cancelScheduledValues(t);
-    this.voiceBus.gain.setValueAtTime(this.voiceBus.gain.value, t);
-    this.voiceBus.gain.linearRampToValueAtTime(0, t + 0.012);
-    this.voiceBus.gain.setValueAtTime(1, t + 0.08);
+    this.voiceSum.gain.cancelScheduledValues(t);
+    this.voiceSum.gain.setValueAtTime(this.voiceSum.gain.value, t);
+    this.voiceSum.gain.linearRampToValueAtTime(0, t + 0.012);
+    this.voiceSum.gain.setValueAtTime(1, t + 0.08);
   }
 }

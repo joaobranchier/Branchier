@@ -47,13 +47,6 @@
     <div class="face">
       <div class="grille" aria-hidden="true"></div>
 
-      <!-- Silkscreened on the bezel, the way a real siren head is branded. -->
-      <div class="brand">
-        <svg class="brand__mark" viewBox="0 0 72 44" aria-hidden="true">
-          <use href="#i-logo"/>
-        </svg>
-        <span class="brand__name">Sire<b>Flex</b></span>
-      </div>
 
       <!-- ---------------------- status display ---------------------- -->
       <div class="lcd" id="lcd">
@@ -92,6 +85,15 @@
           <svg class="ico ico--wave" viewBox="0 0 44 16" aria-hidden="true"><use href="#w-phaser"/></svg>
           <span class="key__lbl">PHSR</span>
         </button>
+        <!-- The middle of the panel, between the two round keys: where a
+             manufacturer's badge goes on a real siren head. -->
+        <div class="brand">
+          <svg class="brand__mark" viewBox="0 0 72 44" aria-hidden="true">
+            <use href="#i-logo"/>
+          </svg>
+          <span class="brand__name">Sire<b>Flex</b></span>
+        </div>
+
         <button class="key key--round" data-act="tone" data-tone="wawa" type="button">
           <span class="key__lbl key__lbl--big">WA.WA</span>
         </button>

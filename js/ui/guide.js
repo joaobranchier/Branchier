@@ -39,7 +39,7 @@ const USE = {
   wawa: 'Quando já existe outra sirene no ar. O tremolo profundo dá uma assinatura diferente, e é justamente isso que impede que dois veículos em comboio virem um borrão sonoro só.',
   airhorn: 'Um toque, na hora exata. Grave o bastante para atravessar vidro e lataria, curto o bastante para não virar ruído de fundo. É o que se usa quando a sirene contínua já parou de ser notada.',
   rumbler: 'Sempre junto de uma sirene, nunca sozinho. Entre 182 e 400 Hz o som atravessa a carroceria em vez de ricochetear nela — quem está dentro do carro, de vidro fechado e som ligado, sente antes de ouvir.',
-  mech: 'Bombeiros, e por tradição. O rotor leva quase dez segundos para chegar ao regime e desce sozinho por quase vinte. Não serve para ligar e desligar depressa: serve para anunciar que algo grande está vindo.',
+  mech: 'Bombeiros, e por tradição. O rotor leva dois a três segundos para chegar ao regime e depois desce sozinho por quase meio minuto, em roda-livre. Não serve para ligar e desligar depressa: serve para anunciar que algo grande está vindo.',
   manual: 'Quando a situação muda mais rápido que um tom fixo. Você desenha a subida com o dedo — um golpe curto para o pedestre distraído, uma subida longa para abrir o cruzamento.',
 };
 
@@ -92,7 +92,7 @@ const KEYS = [
     ['HI-LO', 'Dois tons fixos alternando, padrão europeu.'],
     ['PHSR', 'Varredura muito rápida com batimento. Curtíssima distância.'],
     ['WA.WA', 'Varredura média com tremolo profundo.'],
-    ['Q-SIREN', 'A eletromecânica. Demora a subir e desce sozinha por ~19 s.'],
+    ['Q-SIREN', 'A eletromecânica. Sobe em 2–3 s e desce sozinha por ~30 s.'],
     ['AIR HORN', 'Momentâneo: só soa enquanto o dedo está em cima.'],
     ['MANUAL', 'Momentâneo. Segure para subir o tom, solte para deixar cair.'],
   ]},
