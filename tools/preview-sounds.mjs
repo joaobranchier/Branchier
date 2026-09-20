@@ -49,19 +49,50 @@ function writeWav(path, data, sr) {
 /* ------------------- the shared horn + room stage ------------------- */
 
 /**
- * Mirrors what the app's graph does after a source buffer: the compression
- * driver's own distortion, the horn's fixed resonances, then a little of the
- * street. Kept here so what you hear in these files is what the app plays.
+ * Mirrors what the app's graph does after a source buffer: the radiator's own
+ * distortion and response, then a little of the street.
+ *
+ * One voicing per family, because these are not the same object. A siren
+ * head is a compression driver on a horn, with a hard presence peak and
+ * nothing below a few hundred hertz. An air horn is a flaring trumpet whose
+ * fundamental is the point. A Q is a rotor in a housing. Running all three
+ * through the siren-speaker curve — which the first pass did — gave the horn
+ * and the Q a nasal, hollow colour that belonged to neither.
  */
-function voiceChain(src, sr, { drive = 1.5, wet = 0.22, lowCut = 330 } = {}) {
+const VOICING = {
+  siren: {
+    drive: 1.5, wet: 0.22,
+    bands: [[700, 1.1, -4], [1250, 1.5, 5.5], [2600, 2.0, 4]],
+    lowCut: 330, highCut: 7800,
+  },
+  horn: {
+    drive: 1.15, wet: 0.26,
+    // No dip, and the low cut stays below the trumpets: a 300 Hz horn tuned
+    // to 311 Hz must keep its own fundamental.
+    bands: [[480, 1.0, 3], [1400, 1.3, 2]],
+    lowCut: 130, highCut: 6800,
+  },
+  mech: {
+    drive: 1.3, wet: 0.34,
+    bands: [[900, 0.9, 3], [2000, 1.4, 2]],
+    lowCut: 190, highCut: 8200,
+  },
+  rumble: {
+    drive: 1.1, wet: 0.10,
+    bands: [[160, 0.9, 3]],
+    lowCut: 70, highCut: 1200,
+  },
+};
+
+function voiceChain(src, sr, family = 'siren') {
+  const v = VOICING[family];
   const out = Float32Array.from(src);
-  for (let i = 0; i < out.length; i++) out[i] = driverClip(out[i], drive);
+  for (let i = 0; i < out.length; i++) out[i] = driverClip(out[i], v.drive);
   chain(out,
-    highpass(sr, lowCut, 0.72),
-    peaking(sr, 700, 1.1, -4),
-    peaking(sr, 1250, 1.5, 5.5),
-    peaking(sr, 2600, 2.0, 4),
-    lowpass(sr, 7800, 0.7));
+    highpass(sr, v.lowCut, 0.72),
+    ...v.bands.map(([f, q, g]) => peaking(sr, f, q, g)),
+    lowpass(sr, v.highCut, 0.7));
+  const wet = v.wet;
 
   if (wet > 0) {
     const ir = renderStreetIR(sr, 0.45);
@@ -96,7 +127,7 @@ mkdirSync(OUT, { recursive: true });
 const made = [];
 
 for (const [id, spec] of Object.entries(TONES)) {
-  let src, seconds = SECONDS, opts = {};
+  let src, seconds = SECONDS, family = 'siren';
 
   if (spec.kind === 'sweep' || spec.kind === 'twotone') {
     src = tile(renderSiren(spec, SR), seconds, SR);
@@ -107,17 +138,17 @@ for (const [id, spec] of Object.entries(TONES)) {
     src = new Float32Array(hold.length + r.release.length);
     src.set(hold, 0);
     src.set(r.release, hold.length);
-    opts = { drive: 1.25, lowCut: 170, wet: 0.26 };
+    family = 'horn';
   } else if (spec.kind === 'mechanical') {
     const r = renderMech(spec, SR);
     const hold = tile(r, spec.spinUpS + 2, SR);
     src = new Float32Array(hold.length + r.release.length);
     src.set(hold, 0);
     src.set(r.release, hold.length);
-    opts = { drive: 1.35, lowCut: 220, wet: 0.3 };
+    family = 'mech';
   } else if (spec.kind === 'rumble') {
     src = tile(renderRumble(spec, TONES.wail1, SR), seconds, SR);
-    opts = { drive: 1.2, lowCut: 90, wet: 0.12 };
+    family = 'rumble';
   } else if (spec.kind === 'manual') {
     // Swept by playback rate in the app; approximated here by resampling.
     const steady = renderSteady(1000, SR);
@@ -135,7 +166,7 @@ for (const [id, spec] of Object.entries(TONES)) {
     continue;
   }
 
-  const wav = voiceChain(src, SR, opts);
+  const wav = voiceChain(src, SR, family);
   const path = join(OUT, `${id}.wav`);
   writeWav(path, wav, SR);
   made.push(`${id}.wav  ${(wav.length / SR).toFixed(1)}s`);

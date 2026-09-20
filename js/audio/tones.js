@@ -139,19 +139,21 @@ export const TONES = {
     label: 'AIR HORN',
     caption: 'Air horn',
     blurb: 'Buzina de ar de caminhão. Três trombetas afinadas em acorde, levemente desafinadas entre si para bater, com jato de ar no ataque e queda de pressão ao soltar.',
-    spec: 'Nathan AirChime · 311 Hz (D#) + acorde · harmônicos >5 kHz',
+    spec: 'Par de trombetas · 311 / 370 Hz · terça menor',
     kind: 'horn',
-    // Nathan K-series fundamentals sit between ~311 Hz (D#) and 415 Hz (G#).
-    // A three-bell chord: D#4, G4 (major third), A#4 (fifth).
+    // Two trumpets, a minor third apart. OEM dual sets are tuned to a third
+    // — a documented pair is 415 Hz with 494 Hz — and a truck horn sits at
+    // 250-350 Hz, so the interval is taken down into that range. The earlier
+    // three-bell major triad was the mistake: a major chord reads as musical,
+    // and a truck horn is anything but.
     bells: [
-      { hz: 311.13, gain: 1.00, detune: 0.7 },   // D#4 — the fundamental bell
-      { hz: 392.00, gain: 0.62, detune: -1.1 },  // G4
-      { hz: 466.16, gain: 0.45, detune: 1.6 },   // A#4
+      { hz: 311.13, gain: 1.00, detune: 0.7 },   // D#4 — the big trumpet
+      { hz: 369.99, gain: 0.86, detune: -1.4 },  // F#4 — a minor third above
     ],
     wave: 'horn',
-    attackMs: 26,
+    attackMs: 18,
     releaseMs: 180,
-    scoopSemis: 1.4,           // pitch rises into tune as air pressure builds
+    scoopSemis: 0.5,           // pitch rises into tune as air pressure builds
     droopSemis: 0.9,           // and falls away as it bleeds out
     airNoise: 0.22,
     gain: 0.95,

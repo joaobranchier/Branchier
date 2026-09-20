@@ -13,8 +13,8 @@
  */
 
 import {
-  TAU, rng, pinkNoise, drift, harmonicSum, pulseHarmonics, squareHarmonics,
-  normalize, fadeEdges, crossfadeLoop, sealLoopTail, lowpass, highpass, bandpass, chain,
+  TAU, rng, pinkNoise, drift, harmonicSum, pulseHarmonics, squareHarmonics, triangleHarmonics,
+  normalize, fadeEdges, crossfadeLoop, sealLoopTail, lowpass, highpass, peaking, chain,
 } from './dsp.js';
 
 const MAX_H = 48;
@@ -142,7 +142,7 @@ function applyGate(buf, gate, sr, loopLen) {
  *    modulated by the pulse itself rather than sitting underneath it.
  */
 export function renderHorn(spec, sr) {
-  const attackS = 0.11;
+  const attackS = 0.06;            // the valve opens fast; a horn is a stab
   const loopS = 0.5;
   const releaseS = (spec.releaseMs ?? 180) / 1000 + 0.12;
 
@@ -154,58 +154,61 @@ export function renderHorn(spec, sr) {
   const rel = new Float32Array(nR);
   const nyq = sr * 0.5;
 
-  // Pressure over time: rises fast, overshoots slightly, settles.
-  const pressureAt = (t) => {
-    if (t >= attackS) return 1;
-    const k = t / attackS;
-    return Math.min(1, 1.12 * (1 - Math.exp(-4.2 * k)));
-  };
+  const pressureAt = (t) => (t >= attackS ? 1 : Math.min(1, 1.1 * (1 - Math.exp(-6.5 * t / attackS))));
+  const scoop = Math.pow(2, -(spec.scoopSemis ?? 0.5) / 12);
 
   spec.bells.forEach((bell, bi) => {
     const rand = rng(0x1a2b3c + bi * 7919);
     const noise = pinkNoise(rand);
-    const pitchDrift = drift(rand, 5.5, sr, 0.004);
+    const pitchDrift = drift(rand, 5.5, sr, 0.0035);
     const jitter = rng(0xbeef + bi * 131);
 
     let ph = 0;
-    let lastPh = 0;
 
-    const run = (buf, offset, releasing) => {
+    const run = (buf, releasing) => {
       for (let i = 0; i < buf.length; i++) {
-        const t = (offset + i) / sr;
         const p = releasing
           ? Math.max(0, 1 - (i / nR) * 1.25)
-          : pressureAt(t);
+          : pressureAt(i / sr);
 
-        // Pitch rises into tune as pressure builds and sags as it bleeds off.
-        const f = bell.hz * (1 - (1 - p) * 0.06) * (1 + pitchDrift());
-        // The reed shuts harder the more pressure is behind it.
-        const duty = 0.5 - 0.17 * p;
+        // Pitch pulls into tune as pressure builds, sags as it bleeds away.
+        const f = bell.hz * (scoop + (1 - scoop) * p) * (1 + pitchDrift());
+        // The reed shuts harder the more pressure is behind it, so the open
+        // fraction narrows and the tone brightens through the attack rather
+        // than merely getting louder.
+        const duty = 0.5 - 0.16 * p;
         const amps = pulseHarmonics(duty, MAX_H);
 
-        // Per-period jitter: the reed is never quite periodic, and this is
-        // what is heard as rasp rather than as a clean tone.
-        const inc = TAU * f / sr * (1 + jitter() * 0.0025);
-        ph += inc;
-        if (ph > TAU) { ph -= TAU; lastPh = ph; }
+        // The reed is never quite periodic, and that is the rasp.
+        ph += (TAU * f / sr) * (1 + jitter() * 0.003);
+        if (ph > TAU) ph -= TAU;
 
-        const pulse = harmonicSum(ph, amps, f, nyq);
-        // Open-reed gate: turbulence rides the airflow, not the silence.
-        const open = 0.5 + 0.5 * Math.sign(pulse) * Math.min(1, Math.abs(pulse));
-        const air = noise() * (0.10 + 0.34 * open) * p * (spec.airNoise ?? 0.25);
+        const tone = harmonicSum(ph, amps, f, nyq);
+        // Turbulence rides the airflow: loud while the reed is open, gone
+        // while it is shut. Gated by the ideal opening rather than by the
+        // band-limited tone, which rings past the edges.
+        const open = (ph / TAU) < duty ? 1 : 0.12;
+        const air = noise() * open * p * (spec.airNoise ?? 0.25) * 1.6;
 
-        buf[i] += (pulse * 0.72 + air) * p * bell.gain;
+        buf[i] += (tone * 0.68 + air) * p * bell.gain;
       }
     };
 
-    run(body, 0, false);
-    run(rel, nA + nL, true);
+    run(body, false);
+    run(rel, true);
   });
 
-  // The trumpet's own resonances: fixed by its bore, so they colour every
-  // bell the same way rather than following each one's pitch.
-  chain(body, highpass(sr, 150, 0.8), bandpass(sr, 900, 0.55));
-  chain(rel, highpass(sr, 150, 0.8), bandpass(sr, 900, 0.55));
+  // The trumpet's flare: fixed resonances that colour both bells the same
+  // way. The fundamental is left alone — the previous version band-passed
+  // around 900 Hz and thinned out the very note the horn is tuned to.
+  const voice = (b) => chain(b,
+    highpass(sr, 150, 0.7),
+    peaking(sr, 560, 1.1, 4),
+    peaking(sr, 1150, 1.4, 3),
+    peaking(sr, 2300, 1.8, 2.5),
+    lowpass(sr, 6800, 0.7));
+  voice(body);
+  voice(rel);
 
   const out = body.slice(0, nA + nL);
   sealLoopTail(out, nA, Math.round(sr * 0.006));
@@ -246,15 +249,35 @@ export function renderMech(spec, sr) {
   const rand = rng(0x9f1c33);
   const noise = pinkNoise(rand);
 
-  // The rotor is narrow-ported, so the duty cycle is small and the series
-  // runs long — that dense harmonic stack is the Q's scream.
-  const amps = pulseHarmonics(0.16, MAX_H);
+  // A Q has 14 ports on the rotor and 14 on the stator, the same width, so
+  // the open area grows and shrinks linearly as they sweep past each other:
+  // a triangle, asymmetric because the rotor only turns one way.
+  //
+  // But the *radiated* sound is not that triangle. Sound pressure comes from
+  // the rate of change of volume flow, and the derivative of a triangle is a
+  // square — asymmetric here, so rich in both odd and even harmonics, which
+  // is exactly how the real thing is described. Using the triangle itself
+  // gave a fundamental and almost nothing above it; a Q is not a soft sound.
+  // The triangle is still the right shape for gating the air, because that
+  // is the flow rather than the pressure.
+  const R = 0.35;
+  const amps = pulseHarmonics(R, MAX_H);
 
+  // The motor is not audible until the rotor is actually chopping; starting
+  // the curve at a couple of hertz just wrote inaudible rumble into the head
+  // of the buffer.
+  const start = 70;
   const rpmCurve = (t) => {
     const knee = spin * 0.42;
-    if (t <= knee) return idle * Math.pow(peak * 0.72 / idle, t / knee);
+    if (t <= knee) return start * Math.pow(peak * 0.72 / start, t / knee);
     if (t < spin) return peak * 0.72 * Math.pow(peak / (peak * 0.72), (t - knee) / (spin - knee));
     return peak;
+  };
+
+  /** Ideal open area at a phase, for gating the air. */
+  const openAt = (phase) => {
+    const u = phase / TAU;
+    return u < R ? u / R : 1 - (u - R) / (1 - R);
   };
 
   let ph = 0;
@@ -264,22 +287,26 @@ export function renderMech(spec, sr) {
     if (ph > TAU) ph -= TAU;
     const pulse = harmonicSum(ph, amps, f, nyq);
     const speed = Math.min(1, f / peak);
-    // Air first, tone second: at low rotor speed a Q is mostly the sound of
-    // a lot of air being shifted, and the pitch only takes over at speed.
-    const air = noise() * (0.55 - 0.30 * speed) * spec.airNoise;
-    body[i] = (pulse * (0.25 + 0.75 * speed) + air * (0.4 + 0.6 * speed)) * Math.min(1, 0.25 + i / (sr * 0.8));
+    // The rotor chops a continuous airstream, so the turbulence is gated at
+    // the port rate rather than sitting underneath as a steady hiss. That
+    // chopped air is most of what makes a Q sound like a machine moving air
+    // instead of a loudspeaker playing a note.
+    const air = noise() * openAt(ph) * spec.airNoise * (1.9 - 0.7 * speed);
+    body[i] = (pulse * (0.35 + 0.65 * speed) + air) * Math.min(1, 0.2 + i / (sr * 1.2));
   }
 
   for (let i = 0; i < rel.length; i++) {
     const k = i / rel.length;
-    const f = Math.max(idle * 0.5, peak * Math.pow((40 / 60) * spec.ports / peak, k));
+    // Coasts down through the audible range and fades there; it does not
+    // wind all the way to a standstill in front of you.
+    const f = peak * Math.pow(90 / peak, k);
     ph += TAU * f / sr;
     if (ph > TAU) ph -= TAU;
     const pulse = harmonicSum(ph, amps, f, nyq);
     const speed = Math.min(1, f / peak);
-    const air = noise() * (0.55 - 0.30 * speed) * spec.airNoise;
-    const env = Math.pow(1 - k, 0.7);
-    rel[i] = (pulse * (0.25 + 0.75 * speed) + air * (0.4 + 0.6 * speed)) * env;
+    const air = noise() * openAt(ph) * spec.airNoise * (1.9 - 0.7 * speed);
+    const env = Math.pow(1 - k, 0.8);
+    rel[i] = (pulse * (0.35 + 0.65 * speed) + air) * env;
   }
 
   chain(body, highpass(sr, 180, 0.7));

@@ -96,6 +96,43 @@ export function pulseHarmonics(duty, count) {
   return amps;
 }
 
+/**
+ * Harmonics of a triangular pulse peaking at `r` of the period.
+ *
+ * This is the shape a siren rotor actually produces: its ports and the
+ * stator's are the same width, so the open area grows and shrinks linearly
+ * as they sweep past each other. A symmetric triangle would have only odd
+ * harmonics, but the real thing is described as rich in odd *and* even ones,
+ * which is what a slightly asymmetric peak gives.
+ *
+ * Derived by integrating the waveform rather than from a closed form: the
+ * usual sine-only series is for a symmetric triangle and puts the peak in
+ * the wrong place once `r` moves off centre.
+ */
+export function triangleHarmonics(r, count, samples = 2048) {
+  const re = new Float64Array(count + 1);
+  const im = new Float64Array(count + 1);
+  const scale = 2 / samples;
+
+  for (let i = 0; i < samples; i++) {
+    const ph = i / samples;
+    const v = (ph < r ? ph / r : 1 - (ph - r) / (1 - r)) * 2 - 1;
+    for (let k = 1; k <= count; k++) {
+      const a = TAU * k * ph;
+      re[k] += v * Math.cos(a) * scale;
+      im[k] += v * Math.sin(a) * scale;
+    }
+  }
+
+  // Magnitude of the accumulated coefficient. Taking the absolute value
+  // inside the sum instead would average |v·sin| over the period, which
+  // lands on roughly the same number for every harmonic — a flat spectrum,
+  // not a triangle.
+  const amps = new Float64Array(count + 1);
+  for (let k = 1; k <= count; k++) amps[k] = Math.hypot(re[k], im[k]);
+  return amps;
+}
+
 /** Square wave: odd harmonics at 1/k. */
 export function squareHarmonics(count) {
   const amps = new Float64Array(count + 1);
