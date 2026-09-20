@@ -1,0 +1,436 @@
+/* =====================================================================
+   Siren Remote Simulator — faceplate
+   ---------------------------------------------------------------------
+   Everything inside .remote is sized in em, and .remote's font-size is the
+   only thing tied to the viewport. That makes the whole unit scale as one
+   piece: the proportions stay identical from an iPhone SE to an iPad, and
+   there is exactly one number to tune.
+   ===================================================================== */
+
+:root {
+  --shell-1:      #3b4042;
+  --shell-2:      #23272a;
+  --shell-edge:   #14171a;
+  --key:          #c9cfcb;
+  --key-hi:       #e6ebe6;
+  --key-lo:       #a5aca8;
+  --key-ink:      #0b0e0f;
+  --red:          #dc2026;
+  --red-hi:       #f5484e;
+  --amber:        #ffb02e;
+  --amber-glow:   rgba(255, 176, 46, .55);
+  --lcd-bg:       #0a0f0c;
+  --lcd-ink:      #7dffb2;
+  --page:         #0d0f11;
+  --safe-t:       env(safe-area-inset-top, 0px);
+  --safe-b:       env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+/* A class rule setting display: flex outranks the UA's [hidden] rule, which
+   would leave the sheet scrim and the strobe overlay swallowing every touch
+   while apparently invisible. */
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--page);
+  color: #e9eef0;
+  font-family: ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+  /* A siren controller is a thing you jab at. None of it should ever select,
+     callout, or bounce like a document. */
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+
+body {
+  background:
+    radial-gradient(120% 80% at 50% 0%, #1b2024 0%, var(--page) 62%),
+    var(--page);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--safe-t) + 6px) 8px calc(var(--safe-b) + 6px);
+  overflow: hidden;
+}
+
+.sprite { position: absolute; width: 0; height: 0; }
+
+/* ------------------------------ stage ------------------------------ */
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-height: 100%;
+}
+
+.hint {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: .02em;
+  color: #6f7c82;
+  text-align: center;
+  transition: opacity .3s;
+}
+.hint[data-state="on"] { color: #8fd6a8; }
+
+/* ------------------------------ shell ------------------------------ */
+
+.remote {
+  /* The single scaling knob. Everything else follows from it. */
+  font-size: clamp(5.4px, min(2.28vw, 1.02vh), 15px);
+  position: relative;
+  width: 42em;
+  padding: 1.5em;
+  border-radius: 5.2em;
+  background: linear-gradient(168deg, var(--shell-1) 0%, var(--shell-2) 58%, #1b1f21 100%);
+  box-shadow:
+    inset 0 .18em .4em rgba(255, 255, 255, .17),
+    inset 0 -.3em .6em rgba(0, 0, 0, .6),
+    0 0 0 .14em var(--shell-edge),
+    0 2.4em 4em -1.2em rgba(0, 0, 0, .85);
+}
+
+/* moulded buttons on the case edges */
+.side { position: absolute; top: 12em; display: flex; flex-direction: column; gap: 1.1em; }
+.side--l { left: -.55em;  align-items: flex-start; }
+.side--r { right: -.55em; align-items: flex-end; }
+
+.nub {
+  width: .62em; padding: 0; border: 0;
+  border-radius: .35em;
+  background: linear-gradient(90deg, #4a5052, #2a2f31);
+  box-shadow: inset 0 .1em .1em rgba(255,255,255,.22), 0 .1em .2em rgba(0,0,0,.5);
+}
+.nub--sm { height: 2.4em; } .nub--md { height: 3.4em; } .nub--lg { height: 4.6em; }
+.nub:active { filter: brightness(1.45); }
+
+.face { display: flex; flex-direction: column; gap: 1.5em; }
+
+/* speaker grille */
+.grille {
+  height: 1.05em;
+  width: 11em;
+  margin: .15em auto .1em;
+  border-radius: .6em;
+  background: repeating-linear-gradient(90deg, #0e1112 0 .22em, #2c3133 .22em .44em);
+  box-shadow: inset 0 .12em .22em rgba(0,0,0,.9), 0 .06em 0 rgba(255,255,255,.08);
+}
+
+/* ------------------------------ display ------------------------------ */
+
+.lcd {
+  border-radius: 1.1em;
+  padding: .85em 1.1em;
+  background:
+    repeating-linear-gradient(0deg, rgba(255,255,255,.035) 0 1px, transparent 1px .22em),
+    linear-gradient(180deg, #0d1512, var(--lcd-bg));
+  box-shadow: inset 0 .14em .5em rgba(0,0,0,.95), 0 .08em 0 rgba(255,255,255,.07);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--lcd-ink);
+  display: flex; flex-direction: column; justify-content: center; gap: .7em;
+  min-height: 6.4em;
+}
+.lcd__row { display: flex; align-items: center; gap: .6em; }
+.lcd__row--meta { gap: .45em; }
+
+.lcd__tone {
+  font-size: 1.75em; font-weight: 700; letter-spacing: .06em;
+  text-shadow: 0 0 .5em rgba(125,255,178,.5);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 1;
+}
+.lcd__hz { font-size: 1.25em; opacity: .82; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.chip {
+  font-size: .95em; letter-spacing: .08em; font-weight: 700;
+  padding: .22em .55em; border-radius: .4em;
+  border: 1px solid rgba(125,255,178,.45);
+  color: var(--lcd-ink);
+}
+.chip--off { opacity: .28; }
+.chip--hot { background: var(--lcd-ink); color: #06140c; border-color: var(--lcd-ink); }
+
+.lcd__meter {
+  flex: 1; height: .72em; min-width: 4em;
+  border-radius: .36em;
+  background: rgba(125,255,178,.13);
+  overflow: hidden;
+}
+.lcd__meter > i {
+  display: block; height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--lcd-ink), #ffe066 72%, var(--red-hi));
+  transition: width .06s linear;
+}
+
+/* ------------------------------ keys ------------------------------ */
+
+.row { display: flex; align-items: center; gap: 1.1em; }
+.row--top     { justify-content: space-between; }
+.row--circles { justify-content: space-between; padding: 0 1.2em; }
+.row--bottom  { align-items: stretch; gap: .9em; }
+.col { display: flex; flex-direction: column; gap: .9em; justify-content: space-between; }
+
+.key {
+  position: relative;
+  border: 0; margin: 0; padding: .55em .4em;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: .18em;
+  /* A <button> does not inherit font-size, so without this every em inside a
+     key would resolve against the UA's own button font instead of the
+     remote's scale unit, and the whole faceplate would drift out of
+     proportion. flex/min-* stop content from inflating a sized key. */
+  font: inherit;
+  flex: none;
+  min-width: 0; min-height: 0;
+  overflow: hidden;
+  color: var(--key-ink);
+  background: linear-gradient(180deg, var(--key-hi) 0%, var(--key) 46%, var(--key-lo) 100%);
+  border-radius: 1.15em;
+  box-shadow:
+    inset 0 .1em 0 rgba(255,255,255,.9),
+    inset 0 -.18em .25em rgba(0,0,0,.24),
+    0 .34em .05em -.06em rgba(0,0,0,.45),
+    0 .5em .8em rgba(0,0,0,.42);
+  transition: transform .05s ease-out, box-shadow .05s ease-out, filter .12s;
+}
+
+.key__lbl { font-size: 1.05em; font-weight: 800; letter-spacing: .055em; line-height: 1; }
+.key__lbl--big { font-size: 1.35em; letter-spacing: .03em; }
+
+.ico { width: 2.9em; height: 1.75em; fill: currentColor; stroke: currentColor; }
+.ico--wave { width: 3.2em; height: 1.15em; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.ico--stop { width: 2.9em; height: 2.9em; color: var(--red); }
+.ico--horn { width: 5.8em; height: 4em; color: var(--red); }
+
+/* pressed */
+.key.is-down {
+  transform: translateY(.22em);
+  box-shadow:
+    inset 0 .12em .3em rgba(0,0,0,.34),
+    inset 0 -.06em 0 rgba(255,255,255,.4),
+    0 .1em .06em -.04em rgba(0,0,0,.4);
+  filter: brightness(.94);
+}
+
+/* latched on — the key lights from behind, like a backlit panel */
+.key.is-on {
+  background: linear-gradient(180deg, #ffe9b8 0%, var(--amber) 55%, #d98a12 100%);
+  box-shadow:
+    inset 0 .1em 0 rgba(255,255,255,.85),
+    inset 0 -.18em .25em rgba(120,60,0,.35),
+    0 .34em .05em -.06em rgba(0,0,0,.45),
+    0 0 1.6em .1em var(--amber-glow);
+}
+.key.is-on .ico--stop, .key.is-on .ico--horn { color: #7a2408; }
+
+/* the little status LED */
+.key::after {
+  content: ""; position: absolute; top: .42em; right: .5em;
+  width: .42em; height: .42em; border-radius: 50%;
+  background: rgba(0,0,0,.24);
+  box-shadow: inset 0 .04em .08em rgba(0,0,0,.5);
+  opacity: 0; transition: opacity .12s;
+}
+.key.is-on::after {
+  opacity: 1;
+  background: #fff3d4;
+  box-shadow: 0 0 .5em .12em rgba(255,255,255,.9);
+}
+
+.key--wide  { width: 12.2em; height: 7.2em; }
+.key--round { width: 8.6em;  height: 8.6em; border-radius: 50%; padding: 0; }
+.key--auto  { width: 9.4em;  height: 9.4em; }
+.key--sm    { width: 6.4em;  height: 5.2em; border-radius: .85em; }
+.key--sm .key__lbl { font-size: 1.1em; }
+
+.key--red {
+  background: linear-gradient(180deg, var(--red-hi) 0%, var(--red) 52%, #97161b 100%);
+  color: #fff;
+}
+.key--red.is-on {
+  background: linear-gradient(180deg, #fff 0%, #ffd9da 40%, var(--red-hi) 100%);
+  color: #7d0e12;
+  box-shadow: inset 0 .1em 0 rgba(255,255,255,.9), 0 0 1.8em .12em rgba(245,72,78,.75);
+}
+.key--red.is-on::after { background: #fff; box-shadow: 0 0 .5em .12em rgba(255,140,140,.95); }
+
+/* -------------------- cross pad with centre STOP -------------------- */
+
+.pad {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.1em;
+}
+.key--pad { height: 8.4em; }
+/* The centre circle intrudes on the inner corner of each pad key, so each
+   key's label is pushed to its outer edge — exactly the arrangement the
+   original faceplate uses. */
+.pad--tl, .pad--bl { align-items: flex-start; padding-left: 1.4em; }
+.pad--tr, .pad--br { align-items: flex-end;   padding-right: 1.4em; }
+.pad--tl { border-top-right-radius:    3.6em; }
+.pad--tr { border-top-left-radius:     3.6em; }
+.pad--bl { border-bottom-right-radius: 3.6em; }
+.pad--br { border-bottom-left-radius:  3.6em; }
+
+.key--stop {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 11em; height: 11em;
+  border-radius: 50%;
+  padding: 0; gap: .1em;
+  z-index: 2;
+  box-shadow:
+    inset 0 .1em 0 rgba(255,255,255,.9),
+    inset 0 -.18em .25em rgba(0,0,0,.24),
+    0 0 0 .5em var(--shell-2),
+    0 .4em .9em rgba(0,0,0,.6);
+}
+.key--stop.is-down { transform: translate(-50%, -50%) translateY(.22em); }
+.key--stop .key__lbl { font-size: 1.15em; }
+
+/* ------------------------------ horn ------------------------------ */
+
+.key--horn {
+  flex: 1;
+  min-height: 12.6em;
+  border-radius: 1.5em;
+  gap: .3em;
+}
+.key--horn .key__lbl { font-size: 1.2em; letter-spacing: .1em; }
+.key--horn.is-down {
+  background: linear-gradient(180deg, #ffd9b0 0%, #ffab5e 55%, #d97a20 100%);
+  box-shadow: inset 0 .12em .4em rgba(120,50,0,.4), 0 0 2.2em .2em rgba(255,150,60,.6);
+}
+.key--horn.is-down .ico--horn { color: #8a2708; }
+
+/* ------------------------------ extras ------------------------------ */
+
+.extras { display: flex; gap: .9em; }
+.key--pill { flex: 1; height: 5em; border-radius: .9em; }
+.key--pill .key__lbl { font-size: 1.05em; }
+
+/* ------------------------------ strobe ------------------------------ */
+
+.strobe {
+  position: fixed; inset: 0; z-index: 90;
+  display: flex; background: #000;
+}
+.strobe__half { flex: 1; opacity: 0; }
+.strobe__half--l { background: #ff1414; }
+.strobe__half--r { background: #1440ff; }
+.strobe--white .strobe__half { background: #fff; }
+
+.strobe__exit {
+  position: absolute; left: 50%; bottom: calc(var(--safe-b) + 26px);
+  transform: translateX(-50%);
+  padding: 12px 22px; border: 0; border-radius: 999px;
+  background: rgba(0,0,0,.62); color: #fff;
+  font: 600 14px/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .04em;
+  backdrop-filter: blur(8px);
+}
+
+/* ------------------------------ sheets ------------------------------ */
+
+.sheet { position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-end; }
+.sheet__scrim { position: absolute; inset: 0; background: rgba(0,0,0,.66); backdrop-filter: blur(3px); }
+
+.sheet__panel {
+  position: relative; width: 100%;
+  max-height: 88dvh; max-height: 88vh;
+  background: #16191c;
+  border-radius: 20px 20px 0 0;
+  border-top: 1px solid #2c3236;
+  box-shadow: 0 -20px 60px rgba(0,0,0,.7);
+  display: flex; flex-direction: column;
+  animation: rise .26s cubic-bezier(.2,.8,.3,1);
+}
+@keyframes rise { from { transform: translateY(14%); opacity: .4; } }
+@media (prefers-reduced-motion: reduce) { .sheet__panel { animation: none; } }
+
+.sheet__grip { padding: 12px 0 6px; flex: none; }
+.sheet__grip::before {
+  content: ""; display: block; width: 40px; height: 4px; margin: 0 auto;
+  border-radius: 999px; background: #444c51;
+}
+.sheet__body {
+  padding: 4px 20px calc(var(--safe-b) + 26px);
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  -webkit-user-select: text; user-select: text;
+}
+
+.sheet h2 { font-size: 19px; margin: 14px 0 8px; letter-spacing: -.01em; }
+.sheet h3 { font-size: 14px; margin: 20px 0 8px; color: #8fa0a8; text-transform: uppercase; letter-spacing: .09em; }
+.sheet p  { font-size: 14.5px; line-height: 1.62; color: #c2cbd0; margin: 0 0 10px; }
+.sheet small { color: #7d8b92; font-size: 12.5px; line-height: 1.55; display: block; }
+.sheet code { font-family: ui-monospace, Menlo, monospace; font-size: .92em; color: #8fd6a8; }
+
+.tone-card {
+  border: 1px solid #262c30; border-radius: 12px;
+  padding: 12px 14px; margin-bottom: 8px; background: #1b1f22;
+}
+.tone-card b { font-size: 14px; letter-spacing: .06em; }
+.tone-card .spec {
+  display: block; font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px; color: var(--amber); margin: 3px 0 6px; letter-spacing: .02em;
+}
+.tone-card p { margin: 0; font-size: 13.5px; }
+
+.field { display: flex; align-items: center; gap: 12px; margin: 14px 0; }
+.field label { flex: 1; font-size: 14.5px; color: #dbe3e7; }
+.field input[type=range] { flex: 1.2; accent-color: var(--amber); }
+.field output { width: 3.4em; text-align: right; font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--amber); }
+
+.switchrow {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; padding: 13px 0; border-bottom: 1px solid #23282c;
+}
+.switchrow:last-of-type { border-bottom: 0; }
+.switchrow span { font-size: 14.5px; color: #dbe3e7; }
+.switchrow small { margin-top: 3px; }
+
+.toggle {
+  flex: none; width: 50px; height: 30px; border: 0; border-radius: 999px;
+  background: #343b40; position: relative; transition: background .18s;
+}
+.toggle::after {
+  content: ""; position: absolute; top: 3px; left: 3px;
+  width: 24px; height: 24px; border-radius: 50%; background: #fff;
+  transition: transform .18s cubic-bezier(.3,.7,.3,1);
+}
+.toggle[aria-pressed="true"] { background: #2ea05a; }
+.toggle[aria-pressed="true"]::after { transform: translateX(20px); }
+
+.btn {
+  display: block; width: 100%; margin-top: 16px;
+  padding: 14px; border: 0; border-radius: 12px;
+  background: var(--amber); color: #1b1200;
+  font: 700 15px/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .02em;
+}
+.btn--ghost { background: #262c30; color: #dbe3e7; }
+
+.warn {
+  border: 1px solid #5a3a12; background: #241a09; border-radius: 12px;
+  padding: 12px 14px; margin: 12px 0;
+}
+.warn p { color: #f0cf92; margin: 0; font-size: 13.5px; }
+
+/* Landscape on a phone. Shrinking the unit far enough to fit 390 px of
+   height would make the labels unreadable, so the page is allowed to scroll
+   instead. Installed to the home screen the manifest locks portrait and this
+   never comes up. */
+@media (orientation: landscape) and (max-height: 560px) {
+  .hint { display: none; }
+  body { overflow-y: auto; justify-content: flex-start; }
+}

@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Siren Remote — Simulador de Controlador de Sirene</title>
+
+<!-- viewport-fit=cover lets the faceplate run under the notch and home bar;
+     user-scalable=no stops a double-tap on a button from zooming the page. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="description" content="Controlador de sirene e air horn sintetizado em tempo real, com tons calibrados pelas especificações reais de fabricante. Roda no iPhone sem App Store.">
+<meta name="theme-color" content="#101214">
+<meta name="color-scheme" content="dark">
+
+<!-- Home-screen install on iOS -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Siren Remote">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png" sizes="192x192">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- ============================ lightbar ============================ -->
+<div id="strobe" class="strobe" hidden aria-hidden="true">
+  <div class="strobe__half strobe__half--l"></div>
+  <div class="strobe__half strobe__half--r"></div>
+  <button id="strobeExit" class="strobe__exit" type="button">Toque para sair</button>
+</div>
+
+<!-- ============================ the remote ============================ -->
+<main class="stage">
+  <div class="remote" id="remote">
+
+    <!-- moulded side buttons, as on the original unit -->
+    <div class="side side--l">
+      <button class="nub nub--sm" id="btnVolUp"   type="button" aria-label="Aumentar volume"></button>
+      <button class="nub nub--lg" id="btnVolDown" type="button" aria-label="Diminuir volume"></button>
+    </div>
+    <div class="side side--r">
+      <button class="nub nub--md" id="btnPower" type="button" aria-label="Liga / desliga"></button>
+      <button class="nub nub--sm" id="btnInfo"  type="button" aria-label="Ajuda e ajustes"></button>
+    </div>
+
+    <div class="face">
+      <div class="grille" aria-hidden="true"></div>
+
+      <!-- ---------------------- status display ---------------------- -->
+      <div class="lcd" id="lcd">
+        <div class="lcd__row">
+          <span class="lcd__tone" id="lcdTone">STANDBY</span>
+          <span class="lcd__hz"   id="lcdHz"></span>
+        </div>
+        <div class="lcd__row lcd__row--meta">
+          <span class="chip" id="chipEq">FLAT</span>
+          <span class="chip" id="chipMod">STD</span>
+          <span class="chip chip--off" id="chipMix">MIX</span>
+          <span class="lcd__meter" aria-hidden="true"><i id="meterFill"></i></span>
+        </div>
+      </div>
+
+      <!-- ------------------------ row 1 ------------------------ -->
+      <div class="row row--top">
+        <button class="key key--wide" data-act="eq" data-eq="high" id="keyHigh" type="button">
+          <svg class="ico" viewBox="0 0 48 28" aria-hidden="true"><use href="#i-high"/></svg>
+          <span class="key__lbl">HIGH</span>
+        </button>
+
+        <button class="key key--round key--auto" data-act="auto" id="keyAuto" type="button">
+          <span class="key__lbl key__lbl--big">AUTO</span>
+        </button>
+
+        <button class="key key--wide" data-act="eq" data-eq="bass" id="keyBass" type="button">
+          <svg class="ico" viewBox="0 0 48 28" aria-hidden="true"><use href="#i-bass"/></svg>
+          <span class="key__lbl">BASS</span>
+        </button>
+      </div>
+
+      <!-- ------------------------ row 2 ------------------------ -->
+      <div class="row row--circles">
+        <button class="key key--round" data-act="tone" data-tone="phaser" type="button">
+          <svg class="ico ico--wave" viewBox="0 0 44 16" aria-hidden="true"><use href="#w-phaser"/></svg>
+          <span class="key__lbl">PHSR</span>
+        </button>
+        <button class="key key--round" data-act="tone" data-tone="wawa" type="button">
+          <span class="key__lbl key__lbl--big">WA.WA</span>
+        </button>
+      </div>
+
+      <!-- ------------------- cross pad + STOP ------------------- -->
+      <div class="pad">
+        <button class="key key--pad pad--tl" data-act="tone" data-tone="yelp" type="button">
+          <svg class="ico ico--wave" viewBox="0 0 44 16" aria-hidden="true"><use href="#w-yelp"/></svg>
+          <span class="key__lbl">YELP</span>
+        </button>
+        <button class="key key--pad pad--tr" data-act="tone" data-tone="hilo" type="button">
+          <svg class="ico ico--wave" viewBox="0 0 44 16" aria-hidden="true"><use href="#w-hilo"/></svg>
+          <span class="key__lbl">HI-LO</span>
+        </button>
+        <button class="key key--pad pad--bl" data-act="tone" data-tone="wail1" type="button">
+          <svg class="ico ico--wave" viewBox="0 0 44 16" aria-hidden="true"><use href="#w-wail1"/></svg>
+          <span class="key__lbl">WAIL-1</span>
+        </button>
+        <button class="key key--pad pad--br" data-act="tone" data-tone="wail2" type="button">
+          <svg class="ico ico--wave" viewBox="0 0 44 16" aria-hidden="true"><use href="#w-wail2"/></svg>
+          <span class="key__lbl">WAIL-2</span>
+        </button>
+
+        <button class="key key--stop" data-act="stop" id="keyStop" type="button">
+          <svg class="ico ico--stop" viewBox="0 0 34 34" aria-hidden="true"><use href="#i-stop"/></svg>
+          <span class="key__lbl">STOP</span>
+        </button>
+      </div>
+
+      <!-- ------------------------ bottom ------------------------ -->
+      <div class="row row--bottom">
+        <div class="col col--l">
+          <button class="key key--sm" data-act="mod" id="keyMod" type="button">
+            <span class="key__lbl">MOD</span>
+          </button>
+          <button class="key key--sm" data-act="mix" id="keyMix" type="button">
+            <span class="key__lbl">MIX</span>
+          </button>
+        </div>
+
+        <!-- The big one. Momentary: it sounds only while held. -->
+        <button class="key key--horn" data-act="horn" id="keyHorn" type="button">
+          <svg class="ico ico--horn" viewBox="0 0 64 44" aria-hidden="true"><use href="#i-horn"/></svg>
+          <span class="key__lbl" id="hornLbl">AIR HORN</span>
+        </button>
+
+        <div class="col col--r">
+          <button class="key key--sm key--red" data-act="lmb" id="keyLmb" type="button">
+            <span class="key__lbl">LMB</span>
+          </button>
+          <button class="key key--sm key--red" data-act="light" id="keyLight" type="button">
+            <span class="key__lbl">LIGHT</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="extras">
+        <button class="key key--pill" data-act="tone" data-tone="mech" type="button">
+          <span class="key__lbl">Q-SIREN</span>
+        </button>
+        <button class="key key--pill" data-act="manual" id="keyManual" type="button">
+          <span class="key__lbl">MANUAL</span>
+        </button>
+        <button class="key key--pill" data-act="rumble" id="keyRumble" type="button">
+          <span class="key__lbl">RUMBLE</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <p class="hint" id="hint">Toque em qualquer botão para ligar o áudio</p>
+</main>
+
+<!-- ============================ sheets ============================ -->
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet__scrim" data-close></div>
+  <div class="sheet__panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet__grip" data-close></div>
+    <div class="sheet__body" id="sheetBody"></div>
+  </div>
+</div>
+
+<!-- ============================ icon sprite ============================ -->
+<svg class="sprite" aria-hidden="true" focusable="false">
+  <defs>
+    <!-- HIGH: cone firing right into tight, high-frequency wavefronts -->
+    <symbol id="i-high" viewBox="0 0 48 28">
+      <path d="M4 10h5l7-6v20l-7-6H4z"/>
+      <path d="M22 6v16M28 3v22M34 6v16" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+    </symbol>
+    <!-- BASS: cone firing left, wide low-frequency wavefronts -->
+    <symbol id="i-bass" viewBox="0 0 48 28">
+      <path d="M44 10h-5l-7-6v20l7-6h5z"/>
+      <path d="M26 4v20M19 8v12M12 11v6" stroke-width="2.6" stroke-linecap="round" fill="none"/>
+    </symbol>
+    <!-- STOP: speaker, struck through -->
+    <symbol id="i-stop" viewBox="0 0 34 34">
+      <path d="M6 13h4l6-5v18l-6-5H6z"/>
+      <path d="M21 12l8 10M29 12l-8 10" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+    </symbol>
+    <!-- AIR HORN: a pair of trumpets with the blast coming out -->
+    <symbol id="i-horn" viewBox="0 0 64 44">
+      <path d="M6 15h13l14-8v14l-14-3H6zM6 26h13l14 5v9l-14-8H6z"/>
+      <path d="M40 12c5 3 8 6 8 10s-3 7-8 10" stroke-width="3" fill="none" stroke-linecap="round"/>
+      <path d="M48 6c8 5 12 10 12 16s-4 11-12 16" stroke-width="3" fill="none" stroke-linecap="round" opacity=".55"/>
+    </symbol>
+  </defs>
+</svg>
+
+<script type="module" src="js/app.js"></script>
+<noscript><p class="hint">Este simulador precisa de JavaScript para sintetizar o áudio.</p></noscript>
+</body>
+</html>

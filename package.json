@@ -1,0 +1,15 @@
+{
+  "name": "siren-remote-simulator",
+  "version": "1.0.0",
+  "description": "Simulador de controlador de sirene e air horn — PWA instalável no iPhone, com todos os tons sintetizados ao vivo pela Web Audio API.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node tools/verify-audio.mjs",
+    "icons": "python3 tools/make-icons.py",
+    "start": "python3 -m http.server 8080"
+  },
+  "devDependencies": {
+    "node-web-audio-api": "^1.0.4"
+  }
+}
