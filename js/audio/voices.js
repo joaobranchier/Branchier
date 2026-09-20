@@ -465,8 +465,40 @@ class ManualVoice extends Voice {
   }
 
   rise(when) { this._glide(this.spec.hi, this.spec.riseS, when); }
-  fall(when) { this._glide(this.spec.lo, this.spec.fallS, when); }
 
+  /**
+   * Release: the pitch falls away and the voice goes silent at the bottom.
+   *
+   * All of it is scheduled here, in one go, on the audio clock. The first
+   * version let the pitch fall and then silenced the voice from a setTimeout
+   * three and a half seconds later — and a JavaScript timer is not a
+   * promise. iOS throttles and drops them in a backgrounded or idle web app,
+   * and when that one was dropped the fall still happened, because the fall
+   * is audio-thread automation, and the note then held its bottom note
+   * forever with nothing coming to end it. "It sounds like it is about to
+   * stop, and then it never does" is exactly that shape.
+   *
+   * Nothing in this path can be dropped now: once the automation is on the
+   * AudioParam and stop() is on the source, the audio thread owns the rest
+   * whatever the main thread does.
+   */
+  stop(when) {
+    if (this.stopped || this.killed) return;
+    this.stopped = true;
+    const t = when ?? this.ctx.currentTime;
+    const dur = this._glide(this.spec.lo, this.spec.fallS, t);
+
+    const g = this.out.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    // Full level through most of the fall — a manual wail is loud on the way
+    // down — then out over the last fifth of it.
+    g.setValueAtTime(g.value, t + dur * 0.8);
+    g.linearRampToValueAtTime(0, t + dur);
+    this._teardown(t + dur + 0.05);
+  }
+
+  /** @returns {number} how long the glide will take, in seconds. */
   _glide(to, seconds, when) {
     const t = when ?? this.ctx.currentTime;
     const from = this.frequency();
@@ -478,6 +510,7 @@ class ManualVoice extends Voice {
     this.src.playbackRate.cancelScheduledValues(t);
     this.src.playbackRate.setValueAtTime(from / this.base, t);
     this.src.playbackRate.exponentialRampToValueAtTime(to / this.base, t + dur);
+    return dur;
   }
 
   get tailS() { return this.spec.fallS; }

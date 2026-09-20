@@ -543,6 +543,65 @@ console.log('\n--- a tone cannot outlive the finger ---');
   await p.waitForTimeout(4600);
   ok('and the survivor still stops', (await live()) === 0, `${await live()} voz(es)`);
 
+  // The release must not depend on a JavaScript timer at all. iOS throttles
+  // and drops them in a web app that is idle or in the background, and the
+  // manual wail's silencing used to be one three and a half seconds out: the
+  // pitch fell, because that part is audio-thread automation, and then the
+  // note held its bottom note forever. Timers are switched off here for the
+  // whole release, which is the only honest way to test "does not depend on
+  // a timer".
+  await stopAll();
+  await pdown('[data-act="manual"]', 31);
+  await p.waitForTimeout(900);
+  await p.evaluate(() => {
+    window.__timers = [window.setTimeout, window.setInterval];
+    window.setTimeout = () => 0;
+    window.setInterval = () => 0;
+  });
+  await windowUp(31);
+  await p.waitForTimeout(5000);
+  const survived = await live();
+  await p.evaluate(() => {
+    [window.setTimeout, window.setInterval] = window.__timers;
+  });
+  ok('the release survives timers being dropped', survived === 0,
+    `${survived} voz(es) ainda tocando sem setTimeout`);
+
+  // The guide's horn preview ends itself after a stab, and that ending used
+  // to be a timer too.
+  await stopAll();
+  await p.locator('#btnInfo').click();
+  await p.waitForTimeout(400);
+  await p.locator('[data-tab="tones"]').click();
+  await p.waitForTimeout(400);
+  await p.locator('[data-play="airhorn"]').click();
+  await p.waitForTimeout(500);
+  // Two sources, not one: the horn's release is scheduled the moment the
+  // stab starts, so the buffer that ends it is already in the graph waiting
+  // its turn. That is the point — the ending does not depend on anything
+  // happening later on the main thread. So this one asks the meter.
+  ok('the guide previews the air horn', (await meter()) > 2, `medidor ${await meter()}%`);
+  await p.evaluate(() => {
+    window.__timers = [window.setTimeout, window.setInterval];
+    window.setTimeout = () => 0;
+    window.setInterval = () => 0;
+  });
+  await p.waitForTimeout(3500);
+  const hornLeft = await live();
+  await p.evaluate(() => { [window.setTimeout, window.setInterval] = window.__timers; });
+  ok('the horn preview ends itself without timers', hornLeft === 0,
+    `${hornLeft} voz(es) ainda tocando`);
+
+  // And stopping a preview early still means now, not when it felt like it.
+  await p.locator('[data-play="airhorn"]').click();
+  await p.waitForTimeout(300);
+  await p.locator('[data-play="airhorn"]').click();
+  await p.waitForTimeout(500);
+  ok('stopping a preview early stops it now', (await live()) === 0,
+    `${await live()} voz(es)`);
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(300);
+
   // The safety net must not cost two-handed use: the panel is meant to be
   // played with a siren latched and the horn stabbed over it.
   await stopAll();

@@ -215,7 +215,15 @@ que ler o código não pegou:
   cima. Agora a janela também vê o dedo sair, casada por identificador de
   ponteiro para não quebrar o uso com duas mãos, e o caminho de release traz
   um cão de guarda armado **antes** de qualquer coisa que possa lançar
-  exceção — o teste injeta a falha em vez de discutir se ela acontece.
+  exceção — o teste injeta a falha em vez de discutir se ela acontece;
+- e, por baixo disso tudo, o silenciamento da MANUAL era um `setTimeout` de
+  3,4 s. **Timer de JavaScript não é promessa**: o iOS estrangula e descarta
+  timers num app ocioso ou em segundo plano. Quando esse era descartado, a
+  queda do tom ainda acontecia — essa parte é automação no relógio de áudio —
+  e a nota segurava a nota grave para sempre. Hoje a voz agenda a soltura
+  inteira de uma vez no relógio de áudio, e o teste desliga `setTimeout` e
+  `setInterval` durante a soltura, que é o único jeito honesto de verificar
+  "não depende de timer".
 
 **`npm run test:sw`** — publica uma versão nova contra uma cópia do site e
 confere que ela chega. Este é o teste de um defeito que a pessoa do outro lado
@@ -233,7 +241,7 @@ navegador se acha no direito de reaproveitar a cópia. O CI estava certo.
 
 ```
 63/63 checks passed      (áudio)
-79/79 UI checks passed   (navegador)
+83/83 UI checks passed   (navegador)
 7/7 update checks passed (publicação)
 ```
 

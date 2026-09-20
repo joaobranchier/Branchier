@@ -268,23 +268,11 @@ class Controller {
     const voice = this.held.get(key);
     if (!voice) return;
     this.held.delete(key);
-    const spec = voice.spec;
-    // The watchdog goes on first. Everything below it can throw — the glide
-    // schedules automation on a live AudioParam — and none of it may be able
-    // to leave the voice running.
-    this._fade(voice, spec, true);
-    try {
-      if (typeof voice.fall === 'function') {
-        // The manual wail coasts down under its own envelope before teardown.
-        voice.fall();
-        const tail = voice.tailS ?? Controller.tailOf(spec);
-        setTimeout(() => {
-          try { voice.stop(); } catch { voice.kill(); }
-        }, tail * 1000);
-      } else {
-        voice.stop();
-      }
-    } catch { voice.kill(); }
+    // One path for every momentary key. The voice owns its own release and
+    // schedules all of it on the audio clock in a single call — there is no
+    // step left here that a dropped timer could skip. _fade still arms its
+    // backstop first, but nothing load-bearing depends on it any more.
+    this._fade(voice, voice.spec);
     this.syncRumble();
     this.syncScreenLock();
   }
@@ -310,9 +298,15 @@ class Controller {
     // Fade the faceplate out underneath: two sirens at once, with a display
     // that can only name one, is just noise.
     this.engine.duckPanel(true);
-    // A horn is a stab, not a state: it stops on its own.
+    // A horn is a stab, not a state: it stops on its own. The end of the
+    // sound is scheduled on the audio clock, where nothing can drop it; the
+    // timer only catches up the display and the bookkeeping afterwards.
     if (spec.kind === 'horn') {
-      this._previewTimer = setTimeout(() => this.stopPreview(), 1500);
+      voice.stop(this.engine.now + 1.5);
+      // After the release has finished, not at the moment it starts: the
+      // button should still read "Parar" while the horn is ringing out.
+      this._previewTimer = setTimeout(() => this.stopPreview(),
+        (1.5 + voice.tailS + 0.2) * 1000);
     }
     this.syncScreenLock();
     return true;
@@ -326,9 +320,13 @@ class Controller {
     this.previewVoice = null;
     this.previewId = null;
     this.engine.duckPanel(false);
+    // A voice already on a scheduled release — the horn's stab, which ends
+    // itself — is cut rather than released a second time, because asking a
+    // preview to stop means now and stop() would decline as a no-op.
+    if (voice.stopped) voice.kill();
     // Long-tailed tones keep ringing out, so hand them to the same tracker
     // the faceplate uses — STOP has to be able to reach them too.
-    this._fade(voice, spec);
+    else this._fade(voice, spec);
     this.syncScreenLock();
   }
 
