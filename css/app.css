@@ -21,7 +21,7 @@
   --amber-glow:   rgba(255, 176, 46, .55);
   --lcd-bg:       #0a0f0c;
   --lcd-ink:      #7dffb2;
-  --page:         #0d0f11;
+  --page:         #000;
   --safe-t:       env(safe-area-inset-top, 0px);
   --safe-b:       env(safe-area-inset-bottom, 0px);
 }
@@ -48,9 +48,10 @@ html, body {
 }
 
 body {
-  background:
-    radial-gradient(120% 80% at 50% 0%, #1b2024 0%, var(--page) 62%),
-    var(--page);
+  /* Black, flat, and that is the whole point: the red/blue lightbar is a
+     thing the user switches on, never the resting state of the app. It is
+     also what an OLED iPhone spends the least power drawing. */
+  background: var(--page);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -453,3 +454,141 @@ body {
   .hint { display: none; }
   body { overflow-y: auto; justify-content: flex-start; }
 }
+
+/* ====================================================================
+   Guide
+   ==================================================================== */
+
+.guide {
+  position: fixed; inset: 0; z-index: 110;
+  display: flex; flex-direction: column;
+  background: #0b0d0f;
+  padding-top: var(--safe-t);
+}
+
+.guide__bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid #1d2225;
+  flex: none;
+}
+.guide__title { margin: 0; font-size: 20px; letter-spacing: -.01em; }
+.guide__close {
+  border: 0; border-radius: 999px; padding: 9px 16px;
+  background: #22282c; color: #dbe3e7;
+  font: 600 14px/1 ui-sans-serif, system-ui, sans-serif;
+}
+
+.guide__tabs {
+  display: flex; gap: 5px; flex: none;
+  padding: 10px 12px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  border-bottom: 1px solid #1d2225;
+}
+.guide__tabs::-webkit-scrollbar { display: none; }
+.guide__tabs button {
+  /* Tuned so all four labels fit a 375 px phone (an SE) without scrolling. */
+  flex: none; border: 0; border-radius: 999px;
+  padding: 8px 9px;
+  background: #191e21; color: #93a1a8;
+  font: 600 12.5px/1 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0;
+  transition: background .15s, color .15s;
+}
+.guide__tabs button.is-on { background: var(--amber); color: #1b1200; }
+
+.guide__body {
+  flex: 1; min-height: 0;
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 16px 18px calc(var(--safe-b) + 40px);
+  -webkit-user-select: text; user-select: text;
+}
+
+/* Stops the faceplate scrolling underneath an open guide on iOS. */
+body.is-locked { overflow: hidden; }
+
+.guide h3 {
+  font-size: 13px; margin: 26px 0 10px;
+  color: #8fa0a8; text-transform: uppercase; letter-spacing: .1em;
+}
+.guide h4 {
+  font-size: 12.5px; margin: 16px 0 6px;
+  color: #8fa0a8; text-transform: uppercase; letter-spacing: .08em;
+}
+.gintro { font-size: 14px; line-height: 1.6; color: #9aa7ad; margin: 0 0 18px; }
+.gsmall { font-size: 12.5px; line-height: 1.62; color: #7d8b92; margin: 0 0 10px; }
+.guide code { font-family: ui-monospace, Menlo, monospace; font-size: .92em; color: #8fd6a8; }
+
+/* ---- tone cards ---- */
+
+.gcard {
+  border: 1px solid #1f2529; border-radius: 14px;
+  background: #13171a;
+  padding: 14px 15px 16px;
+  margin-bottom: 14px;
+}
+.gcard__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.gcard__head b { font-size: 15px; letter-spacing: .06em; display: block; }
+.gcard__sub { font-size: 13px; color: #8fa0a8; }
+.gcard__spec {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11.5px; color: var(--amber);
+  margin: 6px 0 10px; letter-spacing: .01em;
+}
+.gcard__body { font-size: 14px; line-height: 1.62; color: #c2cbd0; margin: 0 0 8px; }
+.gcard__note { text-transform: none; letter-spacing: 0; color: #66757c; font-weight: 400; }
+
+.gplay {
+  flex: none; display: inline-flex; align-items: center; gap: 7px;
+  border: 0; border-radius: 999px; padding: 8px 14px 8px 11px;
+  background: #23292e; color: #dbe3e7;
+  font: 700 13px/1 ui-sans-serif, system-ui, sans-serif;
+}
+.gplay__ico {
+  width: 0; height: 0;
+  border-left: 9px solid currentColor;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+}
+.gplay.is-on { background: var(--amber); color: #1b1200; }
+.gplay.is-on .gplay__ico {
+  width: 10px; height: 10px; border: 0; background: currentColor; border-radius: 2px;
+}
+
+/* ---- diagrams ---- */
+
+.dg {
+  display: block; width: 100%; height: auto;
+  margin: 4px 0 6px;
+  color: #9aa7ad;
+  overflow: visible;
+}
+.dg--bars { max-width: 320px; }
+.dg-tick  { font: 9.5px ui-monospace, Menlo, monospace; fill: #7d8b92; }
+.dg-axis  { font: 9.5px ui-sans-serif, system-ui, sans-serif; fill: #66757c; }
+.dg-label { font: 600 11px ui-sans-serif, system-ui, sans-serif; fill: #c2cbd0; }
+
+/* ---- key reference ---- */
+
+.gkeys { margin: 0 0 4px; }
+.gkeys dt {
+  font: 700 13px/1.4 ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .05em; color: #e9eef0; margin-top: 12px;
+}
+.gkeys dd {
+  margin: 3px 0 0; font-size: 13.5px; line-height: 1.58; color: #9aa7ad;
+}
+.gkeys dd b { color: #c2cbd0; }
+
+/* ---- form controls inside the guide ---- */
+
+.guide .field select,
+.guide .sel--inline {
+  padding: 9px 11px; border-radius: 9px;
+  background: #22282c; color: #dbe3e7;
+  border: 1px solid #2f363b; font-size: 14px;
+}
+.guide .field select { flex: 1.2; }
+.guide .sel--inline { flex: none; }

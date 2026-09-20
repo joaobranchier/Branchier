@@ -7,7 +7,7 @@
  * where there is signal.
  */
 
-const VERSION = 'siren-remote-v2';
+const VERSION = 'siren-remote-v3';
 const SHELL = [
   './',
   './index.html',
@@ -20,6 +20,8 @@ const SHELL = [
   './js/audio/waves.js',
   './js/audio/tones.js',
   './js/ui/strobe.js',
+  './js/ui/guide.js',
+  './js/ui/diagrams.js',
   './js/ui/sheets.js',
   './js/ui/waveicons.js',
   './icons/apple-touch-icon.png',

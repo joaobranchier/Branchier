@@ -253,6 +253,98 @@ console.log('\n--- keys are operable from a keyboard ---');
   await p.locator('#keyStop').click();
 }
 
+console.log('\n--- the lightbar never comes on by itself ---');
+{
+  await p.locator('#keyStop').click();
+  await p.waitForTimeout(300);
+  const read = () => p.evaluate(() => ({
+    bg: getComputedStyle(document.body).backgroundColor,
+    hidden: document.getElementById('strobe').hidden,
+  }));
+  const rest = await read();
+  ok('background is black at rest', rest.bg === 'rgb(0, 0, 0)', rest.bg);
+  ok('lightbar hidden at rest', rest.hidden);
+
+  // Starting every tone, one after another, must leave it alone.
+  for (const t of ['wail1', 'yelp', 'hilo', 'phaser', 'wawa', 'wail2', 'mech']) {
+    await p.locator(`[data-tone="${t}"]`).click();
+    await p.waitForTimeout(150);
+  }
+  await p.locator('#keyRumble').click();
+  await p.locator('#keyAuto').click();
+  await p.waitForTimeout(900);
+  const busy = await read();
+  ok('background still black with sirens running', busy.bg === 'rgb(0, 0, 0)', busy.bg);
+  ok('lightbar still hidden with sirens running', busy.hidden);
+  await p.locator('#keyAuto').click();
+  await p.locator('#keyStop').click();
+  await p.waitForTimeout(300);
+
+  // And it does come on when its own key is pressed.
+  await p.locator('#keyLmb').click();
+  await p.waitForTimeout(300);
+  ok('lightbar appears when LMB is pressed', !(await read()).hidden);
+  await p.locator('#keyLmb').click();
+  await p.waitForTimeout(300);
+  ok('lightbar goes away when LMB is pressed again', (await read()).hidden);
+}
+
+console.log('\n--- the guide ---');
+{
+  // Snapshot the panel first: the point is that auditioning tones in the
+  // guide leaves it exactly as it was, not that it is empty. Modifier keys
+  // such as RUMBLE and MIX deliberately survive STOP, so "no keys lit" would
+  // be the wrong thing to assert.
+  const latchedBefore = await p.evaluate(() =>
+    [...document.querySelectorAll('.key.is-on')].map((k) => k.dataset.act + ':' + (k.dataset.tone || k.dataset.eq || '')).sort().join(','));
+
+  await p.locator('#btnInfo').click();
+  await p.waitForTimeout(500);
+  ok('guide opens from the side key', await p.locator('#guide').isVisible());
+  ok('four tabs', (await p.locator('.guide__tabs button').count()) === 4);
+  ok('a card per tone', (await p.locator('.gcard').count()) === 10);
+  ok('two diagrams per tone', (await p.locator('.guide svg.dg').count()) === 20);
+
+  // No diagram may contain a broken number.
+  const broken = await p.evaluate(() =>
+    [...document.querySelectorAll('.guide svg')]
+      .filter((s) => /NaN|Infinity|undefined/.test(s.outerHTML)).length);
+  ok('no broken coordinates in any diagram', broken === 0, `${broken} broken`);
+
+  // Auditioning from the guide, and leaving it, must not disturb the panel.
+  await p.locator('[data-play="yelp"]').click();
+  await p.waitForTimeout(800);
+  ok('preview plays', (await meter()) > 10, `${(await meter()).toFixed(0)}%`);
+  ok('preview button shows Parar',
+    (await p.locator('[data-play="yelp"]').innerText()).includes('Parar'));
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(700);
+  ok('closing the guide stops the preview', (await meter()) < 2);
+  const latchedAfter = await p.evaluate(() =>
+    [...document.querySelectorAll('.key.is-on')].map((k) => k.dataset.act + ':' + (k.dataset.tone || k.dataset.eq || '')).sort().join(','));
+  ok('the faceplate is exactly as it was', latchedAfter === latchedBefore,
+    `${latchedBefore || '(none)'} -> ${latchedAfter || '(none)'}`);
+  ok('the preview latched no tone key',
+    (await p.locator('[data-tone].is-on').count()) === 0);
+
+  // Every tab renders.
+  await p.locator('#btnInfo').click();
+  await p.waitForTimeout(300);
+  for (const t of ['keys', 'how', 'set']) {
+    await p.locator(`[data-tab="${t}"]`).click();
+    await p.waitForTimeout(350);
+    const len = (await p.locator('.guide__body').innerText()).length;
+    ok(`tab "${t}" renders`, len > 400, `${len} chars`);
+  }
+  // Settings still work from inside the guide.
+  await p.locator('#sVol').evaluate((e) => { e.value = 40; e.dispatchEvent(new Event('input', { bubbles: true })); });
+  await p.waitForTimeout(200);
+  ok('volume slider in the guide applies',
+    Math.abs((await p.evaluate(() => JSON.parse(localStorage.getItem('sirenremote.v1')).volume)) - 0.4) < 0.01);
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(300);
+}
+
 console.log(`\n\x1b[1m${pass}/${pass + fail} UI checks passed\x1b[0m${fail ? `  \x1b[31m(${fail} failing)\x1b[0m` : ''}`);
 console.log('page errors:', errs.length ? errs.slice(0, 3) : 'none');
 await b.close();

@@ -13,11 +13,6 @@ permissions:
   contents: read
   pages: write
   id-token: write
-  # Needed so the workflow can create the Pages site itself on the first run
-  # (configure-pages with enablement: true). Without it the first deploy
-  # fails with "Resource not accessible by integration" and someone has to
-  # go and flip the setting by hand.
-  administration: write
 
 concurrency:
   group: pages
@@ -56,12 +51,17 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      # Pages must be switched on once for the repository, under
+      # Settings -> Pages -> Build and deployment -> Source: GitHub Actions.
+      #
+      # configure-pages can create the site itself with `enablement: true`,
+      # but that call needs the `administration` scope, and `administration`
+      # is not one of the scopes a workflow may request for GITHUB_TOKEN —
+      # asking for it makes the workflow file itself invalid, and the run
+      # fails before any job starts. It would take a personal access token
+      # with admin rights, which is a much worse thing to put in a repository
+      # than a single visit to a settings page.
       - uses: actions/configure-pages@v5
-        with:
-          # Creates the Pages site on the first run, so publishing never
-          # requires a visit to the settings page. Paired with
-          # `administration: write` above, which is what makes it possible.
-          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .

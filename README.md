@@ -9,6 +9,21 @@ não tem versão para iOS. O layout foi recriado; o áudio foi feito do zero.
 
 ![faceplate](docs/faceplate.png)
 
+## O guia embutido
+
+O botão lateral direito de baixo abre um guia com quatro abas: **Sirenes**,
+**Botões**, **Como funciona** e **Ajustes**.
+
+Cada sirene tem um cartão com o gráfico da sua varredura, um perfil comparativo
+(alcance, urgência, penetração), para que serve na prática — e um botão para
+ouvir ali mesmo, sem mexer no painel atrás.
+
+Os gráficos são **gerados a partir das mesmas especificações que o sintetizador
+lê**. Nenhum é desenhado à mão, então nenhum pode discordar do que você ouve:
+mude a taxa de varredura de um tom e o desenho dele muda junto.
+
+![guia](docs/guia.png)
+
 ## O que tem de diferente
 
 **Nada aqui é arquivo de áudio.** Todos os tons são sintetizados ao vivo pela
@@ -65,7 +80,7 @@ do Safari, e a partir daí não precisa mais de internet.
 | **MOD** | Altera a velocidade de varredura do tom ativo: SLOW / STD / FAST. |
 | **MIX** | Empilha tons em vez de trocá-los. |
 | **AUTO** | Varre wail → yelp → phaser sozinho. |
-| **LMB** | Giroflex vermelho/azul piscando **atrás** do controle — os botões continuam funcionando. |
+| **LMB** | Giroflex vermelho/azul piscando **atrás** do controle — os botões continuam funcionando. Vem desligado e só acende aqui: nenhuma sirene liga a luz sozinha. |
 | **LIGHT** | Luz branca em tela cheia (serve de lanterna). Toque para sair. |
 | **STOP** | Corta tudo na hora. |
 | Laterais | Volume (esquerda), liga/desliga e ajustes (direita). |
@@ -146,7 +161,7 @@ que ler o código não pegou:
 
 ```
 58/58 checks passed     (áudio)
-27/27 UI checks passed  (navegador)
+47/47 UI checks passed  (navegador)
 ```
 
 Os ícones são gerados por `python3 tools/make-icons.py`, que escreve os PNGs à
@@ -161,11 +176,15 @@ GitHub Pages.
 
 > Settings → Pages → Build and deployment → Source → **GitHub Actions**
 
-Sem isso o job de deploy falha com *"Get Pages site failed"*. Dá para o
-workflow ligar sozinho (`enablement: true` na `configure-pages`), mas criar um
-site Pages exige `administration: write` no token do workflow — dar direitos de
-administração do repositório a um workflow para economizar um clique não
-compensa.
+Sem isso o job de deploy falha com *"Get Pages site failed"*.
+
+Não dá para automatizar esse passo. A `configure-pages` sabe criar o site com
+`enablement: true`, mas essa chamada precisa do escopo `administration` — e
+`administration` não está entre os escopos que um workflow pode pedir para o
+`GITHUB_TOKEN`. Pedi-lo torna o próprio arquivo de workflow inválido e a
+execução falha antes de qualquer job começar. Funcionaria só com um token
+pessoal de administrador guardado no repositório, o que é bem pior do que uma
+visita a uma tela de ajustes.
 
 Depois de ligado, o endereço é
 `https://<usuário>.github.io/<repositório>/`.

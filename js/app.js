@@ -7,7 +7,8 @@ import { createVoice } from './audio/voices.js';
 import { TONES, AUTO_CYCLE, MOD_STEPS } from './audio/tones.js';
 import { Strobe } from './ui/strobe.js';
 import { injectWaveIcons } from './ui/waveicons.js';
-import { initSheets, openWelcome, openSettings, isOpen as sheetOpen, close as closeSheet } from './ui/sheets.js';
+import { initSheets, openWelcome, isOpen as sheetOpen, close as closeSheet } from './ui/sheets.js';
+import { initGuide, openGuide, closeGuide, guideOpen, tabBarHTML } from './ui/guide.js';
 import { ScreenLock, Haptics, loadPrefs, savePrefs, isIOS, isStandalone } from './platform.js';
 
 const DEFAULTS = {
@@ -48,6 +49,9 @@ class Controller {
     this.autoIndex = 0;
     this.rumble = false;
     this.rumbleVoice = null;
+    /** Tone being auditioned from the guide, separate from the faceplate. */
+    this.previewVoice = null;
+    this.previewId = null;
     this.standby = true;
 
     this.engine.setVolume(this.prefs.volume);
@@ -83,6 +87,7 @@ class Controller {
    * outranks a latched one — it is what the finger is doing right now.
    */
   get primaryId() {
+    if (this.previewId) return this.previewId;
     if (this.held.has('manual')) return 'manual';
     const latched = this.active.keys().next().value;
     if (latched) return latched;
@@ -91,6 +96,7 @@ class Controller {
   }
 
   get primaryVoice() {
+    if (this.previewVoice) return this.previewVoice;
     if (this.held.has('manual')) return this.held.get('manual');
     const latched = this.active.keys().next().value;
     if (latched) return this.active.get(latched);
@@ -150,8 +156,8 @@ class Controller {
   }
 
   get isSounding() {
-    return this.active.size > 0 || this.held.size > 0
-        || this.fading.size > 0 || this.strobe.active;
+    return this.active.size > 0 || this.held.size > 0 || this.fading.size > 0
+        || !!this.previewVoice || this.strobe.active;
   }
 
   /** How long a voice stays audible after its ordinary release, in seconds. */
@@ -211,6 +217,42 @@ class Controller {
       this._fade(voice, voice.spec);
     }
     this.syncRumble();
+    this.syncScreenLock();
+  }
+
+  /* ----------------------------- preview ----------------------------- */
+
+  /**
+   * Auditions a tone from inside the guide, where the faceplate is covered.
+   * Kept apart from the latched tones so opening the guide, listening to a
+   * few, and closing it again leaves the panel exactly as it was.
+   */
+  preview(id) {
+    if (this.previewId === id) { this.stopPreview(); return false; }
+    this.stopPreview();
+    const spec = TONES[id];
+    const voice = createVoice(this.engine, spec, { source: TONES.wail1 });
+    voice.start();
+    this.previewVoice = voice;
+    this.previewId = id;
+    // A horn is a stab, not a state: it stops on its own.
+    if (spec.kind === 'horn') {
+      this._previewTimer = setTimeout(() => this.stopPreview(), 1500);
+    }
+    this.syncScreenLock();
+    return true;
+  }
+
+  stopPreview() {
+    clearTimeout(this._previewTimer);
+    if (!this.previewVoice) return;
+    const voice = this.previewVoice;
+    const spec = TONES[this.previewId];
+    this.previewVoice = null;
+    this.previewId = null;
+    // Long-tailed tones keep ringing out, so hand them to the same tracker
+    // the faceplate uses — STOP has to be able to reach them too.
+    this._fade(voice, spec);
     this.syncScreenLock();
   }
 
@@ -297,6 +339,10 @@ class Controller {
    */
   panic() {
     this.cancelAuto();
+    clearTimeout(this._previewTimer);
+    this.previewVoice?.kill();
+    this.previewVoice = null;
+    this.previewId = null;
     for (const [id, voice] of this.active) { voice.kill(); this.setKey(`[data-tone="${id}"]`, false); }
     this.active.clear();
     for (const voice of this.held.values()) voice.kill();
@@ -393,6 +439,13 @@ class Controller {
 const ctl = new Controller();
 injectWaveIcons();
 initSheets(ctl);
+document.querySelector('.guide__tabs').innerHTML = tabBarHTML();
+initGuide(ctl);
+
+// The welcome sheet offers a shortcut straight into the guide.
+document.getElementById('sheetBody').addEventListener('click', (e) => {
+  if (e.target.id === 'bGuide') { closeSheet(); openGuide('tones'); }
+});
 
 const ACTIONS = {
   tone:   (el) => { ctl.cancelAuto(); ctl.toggleTone(el.dataset.tone); },
@@ -486,10 +539,9 @@ const side = (id, fn) =>
 side('btnVolUp', () => nudge(0.08));
 side('btnVolDown', () => nudge(-0.08));
 side('btnPower', () => { ctl.haptics.tap(); ctl.togglePower(); });
-side('btnInfo', async () => {
+side('btnInfo', () => {
   ctl.haptics.tap();
-  await ctl.ensureAudio().catch(() => {});
-  openSettings();
+  openGuide();
 });
 
 /* ------------------------------ strobe exit ------------------------------ */
@@ -514,7 +566,11 @@ document.addEventListener('visibilitychange', () => {
 });
 
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { ctl.strobe.stop(); if (sheetOpen()) closeSheet(); }
+  if (e.key === 'Escape') {
+    ctl.strobe.stop();
+    if (guideOpen()) closeGuide();
+    if (sheetOpen()) closeSheet();
+  }
   // Space is panic only when no key has focus — otherwise it belongs to the
   // focused button, which handles it itself.
   const onKey = document.activeElement?.closest?.('.key');
@@ -537,7 +593,7 @@ addEventListener('orientationchange', () => setTimeout(measurePage, 250));
 measurePage();
 
 document.addEventListener('touchmove', (e) => {
-  if (!pageScrolls && !e.target.closest('.sheet__body')) e.preventDefault();
+  if (!pageScrolls && !e.target.closest('.sheet__body, .guide__body')) e.preventDefault();
 }, { passive: false });
 
 /* ------------------------------ first run ------------------------------ */
