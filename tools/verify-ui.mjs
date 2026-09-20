@@ -38,6 +38,25 @@ const ok = (n, c, d = '') => {
 };
 
 const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+
+/**
+ * Counts the buffer sources actually playing.
+ *
+ * The level meter cannot answer "is the old voice still there?": it saturates,
+ * so a siren buried under a Q-siren that should have been cut reads exactly
+ * the same as a siren playing alone. Counting the sources in the graph is the
+ * difference between "something is loud" and "the right thing is sounding".
+ */
+await ctx.addInitScript(() => {
+  window.__live = 0;
+  const start = AudioBufferSourceNode.prototype.start;
+  AudioBufferSourceNode.prototype.start = function (...a) {
+    window.__live++;
+    this.addEventListener('ended', () => { window.__live--; });
+    return start.apply(this, a);
+  };
+});
+
 const p = await ctx.newPage();
 const errs = [];
 p.on('pageerror', e => errs.push(e.message));
@@ -428,6 +447,117 @@ console.log('\n--- the guide ---');
     Math.abs((await p.evaluate(() => JSON.parse(localStorage.getItem('sireflex.v1')).volume)) - 0.4) < 0.01);
   await p.locator('.guide__close').click();
   await p.waitForTimeout(300);
+}
+
+console.log('\n--- a tone cannot outlive the finger ---');
+{
+  const live = () => p.evaluate(() => window.__live);
+  const stopAll = async () => {
+    await p.locator('[data-act="stop"]').click();
+    await p.waitForTimeout(800);
+  };
+  // RUMBLE and MIX are latched by earlier groups and each adds a voice of its
+  // own, so the counts below would be measuring the previous test's leftovers.
+  for (const act of ['rumble', 'mix']) {
+    const key = p.locator(`[data-act="${act}"]`);
+    if ((await key.getAttribute('aria-pressed')) === 'true') {
+      await key.click();
+      await p.waitForTimeout(250);
+    }
+  }
+  // Synthetic pointer events, because the point is what happens when the
+  // button does NOT get the release. Playwright's own input always delivers
+  // both halves to the element, which is exactly the case that works.
+  const pdown = (sel, id) => p.locator(sel).evaluate((el, id) =>
+    el.dispatchEvent(new PointerEvent('pointerdown',
+      { bubbles: true, cancelable: true, pointerId: id, isPrimary: true })), id);
+  const windowUp = (id) => p.evaluate((id) =>
+    window.dispatchEvent(new PointerEvent('pointerup',
+      { bubbles: true, pointerId: id, isPrimary: true })), id);
+
+  // Every count below is absolute, so the group states its own starting
+  // point rather than trusting what the previous one left behind.
+  await stopAll();
+  ok('nothing is sounding going in', (await live()) === 0, `${await live()} voz(es)`);
+
+  // The Q-siren coasts for thirty seconds after its release. Switching to
+  // another tone used to hand it that release, so the Q kept blaring over
+  // whatever came next and drove the master limiter down on top of it: the
+  // panel looked alive and no other siren could be heard. The meter cannot
+  // see this — it saturates either way — so count the voices.
+  await stopAll();
+  await p.locator('[data-tone="mech"]').click();
+  await p.waitForTimeout(3000);
+  ok('the Q-siren is running', (await live()) === 1, `${await live()} voz(es)`);
+  await p.locator('[data-tone="wail1"]').click();
+  await p.waitForTimeout(1400);
+  ok('switching away from the Q leaves one voice', (await live()) === 1,
+    `${await live()} voz(es) — a Q deveria ter sido cortada`);
+  ok('and the new tone is the latched one',
+    (await p.locator('[data-tone="wail1"]').getAttribute('aria-pressed')) === 'true');
+
+  // A momentary key whose own pointerup never arrives. iOS can take a touch
+  // away mid-press — a system gesture claims it, the capture is lost — and
+  // the note then sounded forever, with every further press stacking another
+  // on top of it.
+  await stopAll();
+  await pdown('[data-act="manual"]', 7);
+  await p.waitForTimeout(900);
+  ok('manual sounds while held', (await live()) === 1, `${await live()} voz(es)`);
+  await windowUp(7);
+  await p.waitForTimeout(4600);
+  ok('manual stops when only the window sees the release', (await live()) === 0,
+    `${await live()} voz(es) ainda tocando`);
+
+  // The release path itself must not be skippable. It schedules automation on
+  // a live AudioParam, and when one of those calls threw, the note kept
+  // sounding with nothing left holding a reference to it — the key had
+  // already left the map — so STOP could not reach it and the next press
+  // stacked a second note on top. The fault is injected rather than argued
+  // about: whatever throws, the note has to end.
+  await stopAll();
+  await pdown('[data-act="manual"]', 11);
+  await p.waitForTimeout(700);
+  await p.evaluate(() => {
+    const proto = AudioParam.prototype;
+    const real = proto.exponentialRampToValueAtTime;
+    let armed = true;
+    proto.exponentialRampToValueAtTime = function (...a) {
+      if (armed) { armed = false; throw new Error('falha injetada no release'); }
+      return real.apply(this, a);
+    };
+    window.__restore = () => { proto.exponentialRampToValueAtTime = real; };
+  });
+  await windowUp(11);
+  await p.waitForTimeout(4600);
+  ok('a release that throws still silences the note', (await live()) === 0,
+    `${await live()} voz(es) ainda tocando`);
+  await p.evaluate(() => window.__restore());
+
+  // And the symptom that followed from it.
+  await pdown('[data-act="manual"]', 12);
+  await p.waitForTimeout(700);
+  ok('pressing again never stacks a second note', (await live()) === 1,
+    `${await live()} voz(es)`);
+  await windowUp(12);
+  await p.waitForTimeout(4600);
+  ok('and the survivor still stops', (await live()) === 0, `${await live()} voz(es)`);
+
+  // The safety net must not cost two-handed use: the panel is meant to be
+  // played with a siren latched and the horn stabbed over it.
+  await stopAll();
+  await pdown('[data-act="horn"]', 21);
+  await p.waitForTimeout(700);
+  ok('the horn sounds while held', (await live()) === 1, `${await live()} voz(es)`);
+  await windowUp(22);                       // a different finger, elsewhere
+  await p.waitForTimeout(600);
+  ok('another finger lifting does not release the horn', (await live()) === 1,
+    `${await live()} voz(es)`);
+  await windowUp(21);                       // the one actually holding it
+  await p.waitForTimeout(1600);
+  ok('its own finger does', (await live()) === 0, `${await live()} voz(es)`);
+
+  await stopAll();
 }
 
 console.log('\n--- version and self-update ---');

@@ -97,7 +97,7 @@ botão **Verificar**, para o caso de você querer a resposta agora.
 | **WAIL-1 / WAIL-2 / YELP / HI-LO / PHSR / WA.WA** | Travam um tom. Toque de novo para desligar. |
 | **AIR HORN** | Momentâneo — só soa enquanto o dedo está em cima. |
 | **MANUAL** | Momentâneo. Segure para subir o tom; solte e ele desce sozinho. |
-| **Q-SIREN** | A eletromecânica: sobe em ~2,6 s e desce em roda-livre por ~30 s. |
+| **Q-SIREN** | A eletromecânica: sobe em ~2,6 s e desce em roda-livre por ~30 s. Trocar de tom corta a descida — quem manda é o botão que você acabou de apertar. |
 | **RUMBLE** | Acrescenta a camada grave por baixo do que estiver tocando. |
 | **HIGH / BASS** | Equalização. HIGH corta e alcança longe; BASS dá corpo. Podem ser combinados. |
 | **MOD** | Altera a velocidade de varredura do tom ativo: SLOW / STD / FAST. |
@@ -202,7 +202,20 @@ que ler o código não pegou:
 - o modelo de frequência da Q-siren aproximava por uma exponencial só o que
   o áudio faz em dois segmentos, divergindo por mais de 4× no meio da subida:
   o mostrador mentia e desligar a sirene antes do regime derrubava o tom de
-  uma vez.
+  uma vez;
+- trocar de tom entregava à Q-siren a descida normal dela, de meio minuto em
+  roda-livre, então ela seguia berrando por cima do tom seguinte e empurrava
+  o limitador para baixo junto: o painel parecia vivo e **nenhuma outra
+  sirene se ouvia**. O medidor não enxerga isso — satura dos dois jeitos —,
+  então o teste conta as vozes no grafo;
+- uma tecla momentânea dependia do `pointerup` do próprio botão chegar. No
+  iOS o toque pode ser tomado no meio (o sistema reivindica o gesto, a
+  captura se perde, o app vai para segundo plano) e o evento nunca chega: a
+  nota ficava tocando para sempre e cada toque seguinte empilhava outra por
+  cima. Agora a janela também vê o dedo sair, casada por identificador de
+  ponteiro para não quebrar o uso com duas mãos, e o caminho de release traz
+  um cão de guarda armado **antes** de qualquer coisa que possa lançar
+  exceção — o teste injeta a falha em vez de discutir se ela acontece.
 
 **`npm run test:sw`** — publica uma versão nova contra uma cópia do site e
 confere que ela chega. Este é o teste de um defeito que a pessoa do outro lado
@@ -220,7 +233,7 @@ navegador se acha no direito de reaproveitar a cópia. O CI estava certo.
 
 ```
 63/63 checks passed      (áudio)
-67/67 UI checks passed   (navegador)
+79/79 UI checks passed   (navegador)
 7/7 update checks passed (publicação)
 ```
 

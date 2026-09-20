@@ -237,6 +237,17 @@ class Voice {
     }, Math.max(0, (at - this.ctx.currentTime) * 1000) + 120);
   }
 
+  /**
+   * How long this voice stays audible after an ordinary release.
+   *
+   * The voice knows, and the spec does not always: a horn's release is a
+   * rendered buffer whose length is a property of the render, not a number
+   * anyone wrote down. The controller arms its watchdog from this, so a
+   * value that is too small cuts a release short and one that is too large
+   * delays the backstop — it is worth asking the object itself.
+   */
+  get tailS() { return (this.spec.releaseMs ?? 40) / 1000; }
+
   setRate(factor) { this.rateFactor = factor; }
   frequency() { return 0; }
 }
@@ -330,6 +341,10 @@ class HornVoice extends Voice {
     }
   }
 
+  get tailS() {
+    return this.buffers.release ? this.buffers.release.duration : super.tailS;
+  }
+
   frequency() { return this.spec.bells[0].hz; }
 }
 
@@ -386,11 +401,22 @@ class MechVoice extends Voice {
     this.src.playbackRate.setValueAtTime(from, t);
     this.src.playbackRate.exponentialRampToValueAtTime(this.floorRate, t + s.coastDownS);
 
+    // A coasting Q gets quieter as it slows. The old envelope held full
+    // volume for thirteen seconds and then approached zero asymptotically,
+    // so it was still at about a tenth of full level when teardown cut it —
+    // loud enough to bury whatever came next, and a click at the end.
+    const g0 = Math.max(0.0002, this.out.gain.value);
     this.out.gain.cancelScheduledValues(t);
-    this.out.gain.setValueAtTime(this.out.gain.value, t);
-    this.out.gain.setTargetAtTime(0, t + s.coastDownS * 0.45, s.coastDownS * 0.22);
-    this._teardown(t + s.coastDownS + 0.4);
+    this.out.gain.setValueAtTime(g0, t);
+    this.out.gain.setValueAtTime(g0, t + s.coastDownS * 0.12);
+    this.out.gain.exponentialRampToValueAtTime(g0 * 0.0016, t + s.coastDownS * 0.96);
+    // exponentialRampToValueAtTime cannot reach zero; this last hair of a
+    // ramp is what makes the end silence rather than a step.
+    this.out.gain.linearRampToValueAtTime(0, t + s.coastDownS);
+    this._teardown(t + s.coastDownS + 0.1);
   }
+
+  get tailS() { return this.spec.coastDownS; }
 
   frequency(at) {
     const s = this.spec;
@@ -453,6 +479,8 @@ class ManualVoice extends Voice {
     this.src.playbackRate.setValueAtTime(from / this.base, t);
     this.src.playbackRate.exponentialRampToValueAtTime(to / this.base, t + dur);
   }
+
+  get tailS() { return this.spec.fallS; }
 
   frequency() {
     if (!this.rampS) return this.rampFrom;

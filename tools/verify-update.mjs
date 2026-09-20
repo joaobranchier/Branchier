@@ -25,6 +25,10 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 import { chromium } from 'playwright';
+import { BUILD } from '../js/build.js';
+
+/** The version the test pretends to publish. Never a real one. */
+const NEXT = 'v999-teste';
 
 const PRESET = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const CHROME = process.env.CHROME_PATH || (existsSync(PRESET) ? PRESET : undefined);
@@ -130,8 +134,8 @@ try {
 
   // Publish: the page text changes, and the build number with it.
   edit('index.html', 'Toque em qualquer botão para ligar o áudio', 'BUILD-NOVA-CHEGOU');
-  edit('js/build.js', "export const BUILD = 'v6'", "export const BUILD = 'v7'");
-  edit('sw.js', "const BUILD = 'v6'", "const BUILD = 'v7'");
+  edit('js/build.js', `export const BUILD = '${BUILD}'`, `export const BUILD = '${NEXT}'`);
+  edit('sw.js', `const BUILD = '${BUILD}'`, `const BUILD = '${NEXT}'`);
 
   // The strategy, measured on its own, before any reload can paper over it.
   // The app is open and a build has just gone out; this is the worker being
@@ -141,7 +145,7 @@ try {
   const served = await p.evaluate(() =>
     fetch('./js/build.js', { cache: 'no-store' }).then((r) => r.text()).catch(() => 'erro'));
   const servedBuild = (served.match(/BUILD = '([^']+)'/) || [])[1];
-  ok('the worker serves the published file, not the cached one', servedBuild === 'v7',
+  ok('the worker serves the published file, not the cached one', servedBuild === NEXT,
     `o worker devolveu ${servedBuild || '???'}`);
 
   // One reopen. Not two.
@@ -166,8 +170,8 @@ try {
   await p.waitForTimeout(300);
   await p.locator('[data-tab="set"]').click();
   await p.waitForTimeout(400);
-  const shown = (await p.locator('.guide__body').innerText()).match(/SireFlex (v[\d.]+)/);
-  ok('the running modules are fresh too, not just the html', shown?.[1] === 'v7',
+  const shown = (await p.locator('.guide__body').innerText()).match(/SireFlex (v[\w.-]+)/);
+  ok('the running modules are fresh too, not just the html', shown?.[1] === NEXT,
     `a tela diz ${shown?.[1] || 'nada'}`);
   await p.locator('.guide__close').click();
 

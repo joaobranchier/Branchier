@@ -110,6 +110,12 @@ class Controller {
 
   startTone(id) {
     if (this.active.has(id)) return;
+    // Anything still coasting has had its turn. The Q-siren freewheels for
+    // thirty seconds after its release, and leaving that under the tone that
+    // replaced it is not "two sirens" — it is one siren you cannot hear, with
+    // the master limiter pulling the new one down to nothing. Switching tone
+    // on a real controller switches the tone.
+    this.cutFading();
     const voice = createVoice(this.engine, TONES[id]);
     voice.setRate(MOD_STEPS[this.modStep].factor);
     voice.start();
@@ -122,8 +128,11 @@ class Controller {
   stopTone(id) {
     const voice = this.active.get(id);
     if (!voice) return;
-    this._fade(voice, TONES[id]);
+    // Out of the map first: a tone that failed to release cleanly must not
+    // also be stuck latched, or every later stopAllTones trips over it again
+    // and no other key works.
     this.active.delete(id);
+    this._fade(voice, TONES[id]);
     this.setKey(`[data-tone="${id}"]`, false);
     this.syncRumble();
     this.syncScreenLock();
@@ -147,17 +156,36 @@ class Controller {
     const source = id ? TONES[id] : TONES.wail1;
 
     if (!want) {
-      this.rumbleVoice?.stop();
+      this._retire(this.rumbleVoice);
       this.rumbleVoice = null;
       this._rumbleSource = null;
       return;
     }
     if (this.rumbleVoice && this._rumbleSource === source.id) return;
     // The source changed, so rebuild it to track the new tone.
-    this.rumbleVoice?.stop();
+    this._retire(this.rumbleVoice);
     this._rumbleSource = source.id;
     this.rumbleVoice = createVoice(this.engine, TONES.rumbler, { source });
     this.rumbleVoice.start();
+  }
+
+  /**
+   * Hand a voice over to be released, when the controller is about to drop
+   * its own reference to it.
+   *
+   * The rumble layer used to be stopped and forgotten in the same breath:
+   * if stopping it had thrown, it would have gone on sounding with nothing
+   * left that could reach it — not even STOP. Going through the tracker
+   * costs nothing and closes that door.
+   */
+  _retire(voice) {
+    if (voice) this._fade(voice, voice.spec);
+  }
+
+  /** Cuts, now, anything still ringing out from an earlier release. */
+  cutFading() {
+    for (const voice of this.fading) voice.kill();
+    this.fading.clear();
   }
 
   get isSounding() {
@@ -172,14 +200,26 @@ class Controller {
     return (spec.releaseMs ?? 40) / 1000;
   }
 
-  /** Release a voice normally, but keep hold of it while it rings out. */
+  /**
+   * Release a voice, keep hold of it while it rings out, and guarantee it
+   * goes quiet whatever happens in between.
+   *
+   * The watchdog is armed before anything that can throw, and kill() is
+   * unconditional and idempotent. A release path that an exception can skip
+   * is precisely how a tone ends up sounding forever with no way to reach
+   * it, and a voice that stopped cleanly pays nothing for the insurance.
+   */
   _fade(voice, spec, alreadyFalling = false) {
+    const tail = voice.tailS ?? Controller.tailOf(spec);
     this.fading.add(voice);
-    if (!alreadyFalling) voice.stop();
     setTimeout(() => {
+      voice.kill();
       this.fading.delete(voice);
       this.syncScreenLock();
-    }, (Controller.tailOf(spec) + 0.3) * 1000);
+    }, (tail + 0.35) * 1000);
+    if (!alreadyFalling) {
+      try { voice.stop(); } catch { voice.kill(); }
+    }
   }
 
   syncScreenLock() {
@@ -201,7 +241,22 @@ class Controller {
   /* --------------------------- momentary --------------------------- */
 
   press(key, toneId) {
-    if (this.held.has(key)) return;
+    // Replace, never stack. A key whose release never arrived — iOS can take
+    // a touch away mid-press and the button's own pointerup never fires —
+    // would otherwise leave its note sounding underneath the new one, and
+    // every further press would add another. Cutting the old one here makes
+    // that impossible by construction rather than by hoping for an event.
+    const stale = this.held.get(key);
+    if (stale) {
+      stale.kill();
+      this.held.delete(key);
+    }
+    // And cut whatever is still falling from the last press of this same
+    // key: one manual siren, not a rising one over a falling one. A Q
+    // coasting underneath is left alone — that one really is a second siren.
+    for (const v of [...this.fading]) {
+      if (v.spec.id === toneId) { v.kill(); this.fading.delete(v); }
+    }
     const voice = createVoice(this.engine, TONES[toneId]);
     voice.start();
     this.held.set(key, voice);
@@ -213,14 +268,23 @@ class Controller {
     const voice = this.held.get(key);
     if (!voice) return;
     this.held.delete(key);
-    // The manual wail coasts down under its own envelope before teardown.
-    if (typeof voice.fall === 'function') {
-      voice.fall();
-      this._fade(voice, TONES.manual, true);
-      setTimeout(() => voice.stop(), (TONES.manual.fallS + 0.2) * 1000);
-    } else {
-      this._fade(voice, voice.spec);
-    }
+    const spec = voice.spec;
+    // The watchdog goes on first. Everything below it can throw — the glide
+    // schedules automation on a live AudioParam — and none of it may be able
+    // to leave the voice running.
+    this._fade(voice, spec, true);
+    try {
+      if (typeof voice.fall === 'function') {
+        // The manual wail coasts down under its own envelope before teardown.
+        voice.fall();
+        const tail = voice.tailS ?? Controller.tailOf(spec);
+        setTimeout(() => {
+          try { voice.stop(); } catch { voice.kill(); }
+        }, tail * 1000);
+      } else {
+        voice.stop();
+      }
+    } catch { voice.kill(); }
     this.syncRumble();
     this.syncScreenLock();
   }
@@ -476,6 +540,22 @@ const MOMENTARY = { horn: 'airhorn', manual: 'manual' };
 
 const LATCHING = new Set(['tone', 'eq', 'auto', 'mix', 'rumble', 'lmb', 'light']);
 
+/**
+ * Every momentary key's release, callable from outside that key.
+ *
+ * A note that lasts as long as the finger is down must not depend on its own
+ * button seeing the finger lift. On iOS a touch can be taken away mid-press
+ * — the system claims it for a gesture, the pointer capture is lost, the app
+ * is backgrounded — and the button's pointerup never arrives. The note then
+ * sounds forever, and the next press stacks another on top of it.
+ */
+const releasers = [];        // release regardless of pointer
+const pointerReleasers = []; // release only if this is that key's pointer
+
+function releaseAllHeld() {
+  for (const fn of releasers) fn();
+}
+
 function wire(el) {
   const act = el.dataset.act;
   const momentaryTone = MOMENTARY[act];
@@ -486,10 +566,15 @@ function wire(el) {
   // against an empty map and the note started afterwards — the air horn
   // would sound forever on the first tap of the session.
   let down = false;
+  // Which finger is holding this key, so a second finger lifting off another
+  // key does not release it. Two hands on the panel — a siren latched, the
+  // air horn stabbed over it — is the whole point of the layout.
+  let pointer = null;
 
   const onDown = async (e) => {
     e.preventDefault();
     down = true;
+    pointer = e.pointerId ?? null;
     el.classList.add('is-down');
     ctl.haptics.tap();
     if (momentaryTone && e.pointerId !== undefined) {
@@ -503,6 +588,7 @@ function wire(el) {
 
   const onUp = () => {
     down = false;
+    pointer = null;
     el.classList.remove('is-down');
     if (momentaryTone) ctl.release(act);
   };
@@ -510,6 +596,14 @@ function wire(el) {
   // pointerdown, not click: a siren button has to fire on contact, and the
   // ~300 ms a synthesised click costs is the difference between an
   // instrument and a web page.
+  if (momentaryTone) {
+    releasers.push(onUp);
+    pointerReleasers.push((e) => {
+      if (!down) return;
+      if (pointer === null || e.pointerId === pointer) onUp();
+    });
+  }
+
   el.addEventListener('pointerdown', onDown);
   el.addEventListener('pointerup', onUp);
   el.addEventListener('pointercancel', onUp);
@@ -535,6 +629,20 @@ function wire(el) {
 }
 
 for (const el of document.querySelectorAll('.key[data-act]')) wire(el);
+
+// The safety net for the momentary keys. The window sees the finger lift even
+// when the button does not, and it is matched by pointer id so that lifting
+// one finger never releases the key another finger is still holding. Each
+// releaser is idempotent, so the button's own handler firing first costs
+// nothing.
+const onWindowUp = (e) => { for (const fn of pointerReleasers) fn(e); };
+addEventListener('pointerup', onWindowUp);
+addEventListener('pointercancel', onWindowUp);
+
+// And anything that takes the app away is a release: nothing that stops the
+// user from touching the glass may leave a tone sounding.
+addEventListener('blur', releaseAllHeld);
+addEventListener('pagehide', releaseAllHeld);
 
 /* ---------------------------- side buttons ---------------------------- */
 
@@ -574,7 +682,11 @@ document.addEventListener('visibilitychange', () => {
   // suspended; nothing would sound again until it is resumed.
   if (document.visibilityState === 'visible' && ctl.engine.ready) {
     ctl.engine.ctx.resume().catch(() => {});
+    return;
   }
+  // Going away is a release: the finger is not coming back to a button whose
+  // pointerup was swallowed by whatever took the app away.
+  releaseAllHeld();
 });
 
 window.addEventListener('keydown', (e) => {
