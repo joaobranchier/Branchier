@@ -126,10 +126,12 @@
           </button>
         </div>
 
-        <!-- The big one. Momentary: it sounds only while held. -->
-        <button class="key key--horn" data-act="horn" id="keyHorn" type="button">
-          <svg class="ico ico--horn" viewBox="0 0 64 44" aria-hidden="true"><use href="#i-horn"/></svg>
-          <span class="key__lbl" id="hornLbl">AIR HORN</span>
+        <!-- The big one. Momentary: it sounds only while held. MANUAL has it
+             because MANUAL is the one that gets played — held, worked, let go
+             — rather than stabbed. -->
+        <button class="key key--big" data-act="manual" id="keyManual" type="button">
+          <svg class="ico ico--big" viewBox="0 0 64 44" aria-hidden="true"><use href="#i-manual"/></svg>
+          <span class="key__lbl">MANUAL</span>
         </button>
 
         <div class="col col--r">
@@ -146,8 +148,8 @@
         <button class="key key--pill" data-act="tone" data-tone="mech" type="button">
           <span class="key__lbl">Q-SIREN</span>
         </button>
-        <button class="key key--pill" data-act="manual" id="keyManual" type="button">
-          <span class="key__lbl">MANUAL</span>
+        <button class="key key--pill" data-act="horn" id="keyHorn" type="button">
+          <span class="key__lbl">AIR HORN</span>
         </button>
         <button class="key key--pill" data-act="rumble" id="keyRumble" type="button">
           <span class="key__lbl">RUMBLER</span>
@@ -240,10 +242,9 @@
     </symbol>
 
     <!-- AIR HORN: a pair of trumpets with the blast coming out -->
-    <symbol id="i-horn" viewBox="0 0 64 44">
-      <path d="M6 15h13l14-8v14l-14-3H6zM6 26h13l14 5v9l-14-8H6z"/>
-      <path d="M40 12c5 3 8 6 8 10s-3 7-8 10" stroke-width="3" fill="none" stroke-linecap="round"/>
-      <path d="M48 6c8 5 12 10 12 16s-4 11-12 16" stroke-width="3" fill="none" stroke-linecap="round" opacity=".55"/>
+    <symbol id="i-manual" viewBox="0 0 64 44">
+      <path d="M5 37c9 0 12-30 21-30s13 30 33 30" fill="none" stroke-width="3.4"
+            stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
   </defs>
 </svg>

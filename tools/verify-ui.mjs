@@ -711,6 +711,25 @@ console.log('\n--- the dock, and the key click ---');
   ok('the badge is printed large enough to read', badgeShare > 0.2,
     `${(badgeShare * 100).toFixed(0)}% da largura do aparelho`);
 
+  // MANUAL has the big momentary key and the air horn has a pill. It is the
+  // one that gets played — held, worked, let go — rather than stabbed, so it
+  // is the one worth a thumb-sized target.
+  const layout = await p.evaluate(() => {
+    const big = document.querySelector('.key--big');
+    const pills = [...document.querySelectorAll('.key--pill')].map((k) => k.dataset.act);
+    return { big: big?.dataset.act, bigArea: big?.getBoundingClientRect().width
+      * big?.getBoundingClientRect().height, pills };
+  });
+  ok('MANUAL holds the big key', layout.big === 'manual', layout.big);
+  ok('and the air horn is one of the pills', layout.pills.includes('horn'),
+    layout.pills.join(' '));
+  const pillArea = await p.locator('[data-act="horn"]').evaluate((e) => {
+    const r = e.getBoundingClientRect();
+    return r.width * r.height;
+  });
+  ok('the big key really is the bigger of the two', layout.bigArea > pillArea * 1.5,
+    `${Math.round(layout.bigArea)} contra ${Math.round(pillArea)} px²`);
+
   ok('the low channel is named RUMBLER',
     (await p.locator('[data-act="rumble"] .key__lbl').innerText()).trim() === 'RUMBLER');
 

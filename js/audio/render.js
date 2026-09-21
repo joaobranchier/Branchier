@@ -15,7 +15,6 @@
 import {
   TAU, rng, pinkNoise, drift, harmonicSum, pulseHarmonics, squareHarmonics, triangleHarmonics,
   normalize, fadeEdges, crossfadeLoop, sealLoopTail, lowpass, highpass, peaking, chain,
-  sawHarmonics,
 } from './dsp.js';
 
 const MAX_H = 48;
@@ -451,76 +450,4 @@ export function renderClick(sr, kind = 'down') {
   chain(out, highpass(sr, 110, 0.7), lowpass(sr, 7000, 0.7));
   fadeEdges(out, sr, 1.2);
   return { data: normalize(out, firm ? 0.9 : 0.5), loopStart: 0 };
-}
-
-/* ------------------------------------------------------------------ *
- * The air horn on a patrol car
- * ------------------------------------------------------------------ */
-
-/**
- * Which is not a horn at all, and modelling it as one was the mistake.
- *
- * A lorry's air horn is a reed in a flaring trumpet, and renderHorn above is
- * that object. The button marked AIR HORN on a police siren amplifier drives
- * nothing of the kind: it is an electronic tone generator, going out through
- * the same compression driver that plays the wail. Three things follow, and
- * each of them is a thing the reed model got wrong.
- *
- * A siren horn radiates nothing below about four hundred hertz. Every
- * attempt at making this deeper moved the fundamental down — 311 to 233 to
- * 196 — into the part of the band the speaker cannot reproduce, so what was
- * left was the harmonic stack with its root cut away. That is not depth, it
- * is hollowness, and it is why each attempt sounded worse than the last.
- *
- * The depth people hear is a formant, not a fundamental. "Bóóóp" is a
- * vowel: an O is a peak near five hundred hertz with the region above it
- * pulled down. Put that peak on a bright tone and it reads as deep at a
- * pitch the speaker can actually deliver.
- *
- * And the P at the end is a stop. A reed horn's pitch sags as the pressure
- * bleeds out, which is exactly right for a lorry and exactly wrong here: an
- * electronic horn is switched off, and it ends flat and fast.
- */
-export function renderElectricHorn(spec, sr) {
-  const f0 = spec.hz;
-  const attackS = (spec.attackMs ?? 14) / 1000;
-  const relS = (spec.releaseMs ?? 90) / 1000;
-
-  // A whole number of cycles, so the loop is seamless by construction rather
-  // than by crossfade: this tone is periodic and has no reason not to be.
-  const cycles = Math.max(8, Math.round(f0 * 0.25));
-  const nL = Math.round((cycles * sr) / f0);
-  const nA = Math.round(sr * attackS);
-  const nR = Math.round(sr * relS);
-  const nyq = sr * 0.5;
-
-  const amps = sawHarmonics(MAX_H);
-  const body = new Float32Array(nA + nL);
-
-  let ph = 0;
-  const step = (TAU * f0) / sr;
-  for (let i = 0; i < nA + nL; i++) {
-    ph += step;
-    if (ph > TAU) ph -= TAU;
-    // The amplifier arrives fast. Not instantly — that is a click — but the
-    // B of the word is an onset, not a swell.
-    const t = i / sr;
-    const env = t < attackS ? 1 - Math.exp(-5 * t / attackS) : 1;
-    body[i] = harmonicSum(ph, amps, f0, nyq) * env;
-  }
-
-  // The release keeps the phase going, so the note ends where it was rather
-  // than restarting, and it ends at pitch: no droop, no sag.
-  const rel = new Float32Array(nR);
-  for (let i = 0; i < nR; i++) {
-    ph += step;
-    if (ph > TAU) ph -= TAU;
-    const k = i / nR;
-    rel[i] = harmonicSum(ph, amps, f0, nyq) * (1 - k) * (1 - k);
-  }
-
-  normalize(body, 0.9);
-  normalize(rel, 0.62);
-  fadeEdges(rel, sr, 1);
-  return { data: body, loopStart: nA, release: rel };
 }

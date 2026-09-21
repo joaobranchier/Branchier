@@ -497,7 +497,7 @@ class Controller {
     // Anything still ringing out from an earlier release.
     for (const voice of this.fading) voice.kill();
     this.fading.clear();
-    for (const el of document.querySelectorAll('.key--horn.is-down, .key--pill.is-down')) el.classList.remove('is-down');
+    for (const el of document.querySelectorAll('.key--big.is-down, .key--pill.is-down')) el.classList.remove('is-down');
     this.rumbleVoice?.kill();
     this.rumbleVoice = null;
     this._rumbleSource = null;

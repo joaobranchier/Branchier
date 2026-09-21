@@ -305,7 +305,7 @@ body {
 .ico { width: 2.9em; height: 1.75em; fill: currentColor; stroke: currentColor; }
 .ico--wave { width: 3.2em; height: 1.15em; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .ico--stop { width: 2.9em; height: 2.9em; color: var(--red); }
-.ico--horn { width: 5.8em; height: 4em; color: var(--red); }
+.ico--big  { width: 5.8em; height: 4em; color: var(--red); }
 
 /* Keyboard focus. Drawn outside the key so it survives overflow: hidden. */
 .key:focus-visible {
@@ -349,7 +349,7 @@ body {
     0 .34em .05em -.06em rgba(0,0,0,.45),
     0 0 1.6em .1em var(--amber-glow);
 }
-.key.is-on .ico--stop, .key.is-on .ico--horn { color: #7a2408; }
+.key.is-on .ico--stop, .key.is-on .ico--big { color: #7a2408; }
 
 /* the little status LED */
 .key::after {
@@ -419,18 +419,20 @@ body {
 
 /* ------------------------------ horn ------------------------------ */
 
-.key--horn {
+/* The big momentary key. Named for its size, not for what is on it:
+   which tone lives here is a decision that has already changed once. */
+.key--big {
   flex: 1;
   min-height: 12.6em;
   border-radius: 1.5em;
   gap: .3em;
 }
-.key--horn .key__lbl { font-size: 1.2em; letter-spacing: .1em; }
-.key--horn.is-down {
+.key--big .key__lbl { font-size: 1.2em; letter-spacing: .1em; }
+.key--big.is-down {
   background: linear-gradient(180deg, #ffd9b0 0%, #ffab5e 55%, #d97a20 100%);
   box-shadow: inset 0 .12em .4em rgba(120,50,0,.4), 0 0 2.2em .2em rgba(255,150,60,.6);
 }
-.key--horn.is-down .ico--horn { color: #8a2708; }
+.key--big.is-down .ico--big { color: #8a2708; }
 
 /* ------------------------------ extras ------------------------------ */
 
