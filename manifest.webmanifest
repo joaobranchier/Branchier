@@ -1,7 +1,7 @@
 {
   "name": "SireFlex — Simulador de Sirene",
   "short_name": "SireFlex",
-  "description": "Controlador de sirene, air horn e giroflex com todos os tons sintetizados ao vivo, calibrados pelas especificações reais de fabricante.",
+  "description": "Controlador de sirene, air horn e giroflex com todos os tons sintetizados ao vivo, calibrados pelas especificações reais de fabricante. Um produto da Branchier Law Tech.",
   "lang": "pt-BR",
   "start_url": "./index.html",
   "scope": "./",

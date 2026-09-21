@@ -71,5 +71,12 @@ export function openWelcome() {
     <button class="btn btn--ghost" id="bGuide">Abrir o guia dos tons</button>
     <p style="margin-top:14px"><small>O guia explica cada botão e cada sirene, com
        gráficos de como o som se comporta. Fica na barra embaixo do aparelho.</small></p>
+
+    <p class="gcredit">
+      <b>Branchier Law&nbsp;Tech</b>
+      <span class="gcredit__year">2026</span>
+      <span class="gcredit__what">Desenvolvimento de plataformas, sistemas e
+        simuladores jurídicos, legais e de segurança pública.</span>
+    </p>
   `);
 }

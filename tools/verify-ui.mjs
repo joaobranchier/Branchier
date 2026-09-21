@@ -878,6 +878,34 @@ console.log('\n--- the timbre, measured through the real chain ---');
   ok('hi-lo keeps its weight too', h.low > 90, `${h.low.toFixed(0)}% até 1250 Hz`);
 }
 
+console.log('\n--- the colophon, and the settings sheet ---');
+{
+  await p.locator('#dockSet').click();
+  await p.waitForTimeout(500);
+
+  const credit = (await p.locator('.guide__body .gcredit').innerText())
+    .replace(/\s+/g, ' ').trim();
+  ok('settings are signed', /BRANCHIER LAW TECH/i.test(credit) && credit.includes('2026'),
+    credit.slice(0, 40));
+  ok('and say what the house does',
+    /simuladores jurídicos, legais e de segurança pública/i.test(credit));
+
+  // Every row in Settings is a label with its description under it. Both are
+  // inline elements, so for a long time they ran together on one line and
+  // each row read as one sentence with a stray capital in the middle.
+  const stacked = await p.evaluate(() =>
+    [...document.querySelectorAll('.guide__body .switchrow > div')].every((d) => {
+      const t = d.querySelector('span');
+      const s = d.querySelector('small');
+      if (!t || !s) return true;
+      return t.getBoundingClientRect().bottom <= s.getBoundingClientRect().top + 1;
+    }));
+  ok('every settings row stacks its description', stacked);
+
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(300);
+}
+
 console.log('\n--- version and self-update ---');
 {
   // A build number nobody can see is a build number nobody can trust. This
