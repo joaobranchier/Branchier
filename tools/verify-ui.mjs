@@ -697,6 +697,23 @@ console.log('\n--- the dock, and the key click ---');
   // On a phone that is not a control, it is a decoration in front of a door.
   ok('the side nubs are gone', (await p.locator('.nub, .side').count()) === 0);
 
+  // There was a speaker grille moulded across the top of the case, which on
+  // a rounded dark rectangle reads as an earpiece — and an earpiece makes
+  // the thing a telephone. This is a siren head; it has no ear.
+  ok('no earpiece on a control head', (await p.locator('.grille').count()) === 0);
+
+  // The badge is printing on the panel and has to be legible as such. Given
+  // as a fraction of the unit, so it holds at every scale the faceplate
+  // takes; it was under a sixth of the width and read as a watermark.
+  const badgeShare = await p.evaluate(() =>
+    document.querySelector('.brand').getBoundingClientRect().width
+      / document.querySelector('.remote').getBoundingClientRect().width);
+  ok('the badge is printed large enough to read', badgeShare > 0.2,
+    `${(badgeShare * 100).toFixed(0)}% da largura do aparelho`);
+
+  ok('the low channel is named RUMBLER',
+    (await p.locator('[data-act="rumble"] .key__lbl').innerText()).trim() === 'RUMBLER');
+
   // The badge in the middle of the panel, where a manufacturer prints one.
   const badge = (await p.locator('.brand').innerText()).replace(/\s+/g, ' ').trim();
   ok('the badge carries the name and the model', badge === 'SireFlex SF500 PRO', badge);

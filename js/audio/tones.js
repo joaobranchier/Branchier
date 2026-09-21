@@ -169,7 +169,7 @@ export const TONES = {
 
   rumbler: {
     id: 'rumbler',
-    label: 'RUMBLE',
+    label: 'RUMBLER',
     caption: 'Rumbler (grave)',
     blurb: 'Camada de baixa frequência que acompanha a sirene principal. Você sente antes de ouvir — é o que faz o vidro do carro da frente vibrar.',
     spec: 'Rumbler-class · 182–400 Hz · subharmônico da sirene ativa',
@@ -209,8 +209,12 @@ export const TONES = {
     spec: 'Whelen-style manual wail · 600–1750 Hz',
     kind: 'manual',
     lo: 600, hi: 1750,
-    riseS: 1.9,
-    fallS: 3.4,
+    // An operator playing a siren by hand works it quickly — the whole point
+    // of the manual channel is that the pitch answers the thumb. The first
+    // figures came from a full-travel sweep and read as sluggish: the rise
+    // took most of two seconds and the fall the better part of four.
+    riseS: 1.2,
+    fallS: 2.1,
     wave: 'siren',
     detune: 6,
     gain: 0.84,
@@ -220,7 +224,7 @@ export const TONES = {
 /**
  * The frequency span a tone occupies, normalised.
  *
- * RUMBLE has to track whatever is currently playing, but the mechanical and
+ * RUMBLER has to track whatever is currently playing, but the mechanical and
  * air-horn tones describe themselves with rotor speeds and bell pitches
  * rather than a lo/hi pair — reading `.lo` off those produced NaN and a
  * non-finite AudioParam. Every kind answers the same question here.

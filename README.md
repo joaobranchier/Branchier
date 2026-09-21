@@ -62,7 +62,7 @@ varredura são as de verdade.
 | **WA.WA** | 725–1800 Hz · 132 cpm com AM sincronizada |
 | **AIR HORN** | Nathan AirChime · acorde a partir de 311 Hz (ré♯) |
 | **Q-SIREN** | Federal Signal Q2B · rotor de 14 portas · 400–800 Hz |
-| **RUMBLE** | Classe Rumbler · 182–400 Hz, acompanhando a sirene ativa |
+| **RUMBLER** | Classe Rumbler · 182–400 Hz, acompanhando a sirene ativa |
 | **MANUAL** | Wail manual · 600–1750 Hz, controlado pelo dedo |
 
 `cpm` = ciclos por minuto, a unidade que os fabricantes usam.
@@ -98,9 +98,9 @@ botão **Verificar**, para o caso de você querer a resposta agora.
 | **WAIL-1 / WAIL-2 / YELP / HI-LO / WA.WA** | Travam um tom. Toque de novo para desligar. |
 | **PHSR** | O canal de prioridade, e não mais um tom da fila. Apertado por cima de outra sirene ele assume; a sirene interrompida fica esperando, com a tecla em meia-luz. Desligue o PHSR e ela volta sozinha. É o botão que se aperta sem olhar, então obrigar a reescolher o tom depois anularia o motivo de ele existir. |
 | **AIR HORN** | Momentâneo — só soa enquanto o dedo está em cima. |
-| **MANUAL** | Momentâneo. Segure para subir o tom; solte e ele desce sozinho. |
+| **MANUAL** | Momentâneo. Segure para subir o tom; solte e ele desce sozinho. Sobe em 1,2 s e cai em 2,1 s — o canal manual existe para o tom responder ao polegar. |
 | **Q-SIREN** | A eletromecânica: sobe em ~2,6 s e desce em roda-livre por ~30 s. Trocar de tom corta a descida — quem manda é o botão que você acabou de apertar. |
-| **RUMBLE** | Acrescenta a camada grave por baixo do que estiver tocando. |
+| **RUMBLER** | Acrescenta a camada grave por baixo do que estiver tocando. |
 | **HIGH / BASS** | Equalização. HIGH corta e alcança longe; BASS dá corpo. Podem ser combinados. |
 | **MOD** | Altera a velocidade de varredura do tom ativo: SLOW / STD / FAST. |
 | **MIX** | Empilha tons em vez de trocá-los. |
@@ -271,8 +271,8 @@ e reprovava no CI — onde os tempos calharam de cair dentro da janela em que o
 navegador se acha no direito de reaproveitar a cópia. O CI estava certo.
 
 ```
-63/63 checks passed      (áudio)
-114/114 UI checks passed (navegador)
+67/67 checks passed      (áudio)
+117/117 UI checks passed (navegador)
 7/7 update checks passed (publicação)
 ```
 

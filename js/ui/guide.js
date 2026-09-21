@@ -103,7 +103,7 @@ const KEYS = [
     ['MOD', `Muda a velocidade de varredura do tom ativo: ${MOD_STEPS.map((m) => m.label).join(' → ')}.`],
     ['MIX', 'Empilha tons em vez de trocá-los. Serve para rodar sirene e buzina juntas.'],
     ['AUTO', 'Varre wail → yelp → phaser sozinho. Qualquer toque em um tom cancela.'],
-    ['RUMBLE', 'Camada grave por baixo do que estiver tocando. Não toca sozinha.'],
+    ['RUMBLER', 'Camada grave por baixo do que estiver tocando. Não toca sozinha.'],
   ]},
   { group: 'Luzes', items: [
     ['LED', 'Liga o giroflex vermelho/azul <b>atrás</b> do controle. Vem desligado e só acende aqui — os botões continuam funcionando com ele ligado.'],
@@ -132,7 +132,7 @@ function pageKeys() {
 
 function pageHow() {
   const bands = [
-    { lo: 182,  hi: 400,  label: 'RUMBLE',  color: '#f5484e' },
+    { lo: 182,  hi: 400,  label: 'RUMBLER', color: '#f5484e' },
     { lo: 440,  hi: 585,  label: 'HI-LO',   color: '#7dffb2' },
     { lo: 725,  hi: 1800, label: 'WAIL / YELP', color: '#ffb02e' },
   ];

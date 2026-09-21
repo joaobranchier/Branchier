@@ -340,6 +340,20 @@ group('Regressions');
   assert('square series has no even harmonics', sq[2] === 0 && sq[4] === 0);
 }
 
+group('Feel');
+{
+  // The manual channel exists so the pitch answers the thumb. Figures that
+  // let a full sweep take two seconds up and nearly four back read as
+  // sluggish — it stops being an instrument and becomes a slider.
+  const m = TONES.manual;
+  check('manual rise', m.riseS, 1.2, 20, ' s');
+  check('manual fall', m.fallS, 2.1, 20, ' s');
+  assert('the fall is slower than the rise, as a hand is', m.fallS > m.riseS,
+    `${m.riseS}s -> ${m.fallS}s`);
+  assert('and the whole gesture is under four seconds', m.riseS + m.fallS < 4,
+    `${(m.riseS + m.fallS).toFixed(1)}s`);
+}
+
 group('Shipping');
 {
   // The build number the guide shows and the one the cache is named after are

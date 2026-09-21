@@ -76,9 +76,9 @@ body {
 
 .hint {
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: .02em;
-  color: #6f7c82;
+  color: #5d686d;
   text-align: center;
   transition: opacity .3s;
 }
@@ -89,11 +89,21 @@ body {
 /* Sized in px, not em: it sits outside .remote and must stay a comfortable
    target no matter how far the faceplate has scaled itself down. */
 .dock {
+  position: relative;
   display: flex;
   gap: 6px;
   width: 100%;
   max-width: 470px;
   padding: 0 4px;
+}
+
+/* A hairline above the row, so the dock reads as one piece of hardware
+   under the unit rather than as five loose buttons on a black field. */
+.dock::before {
+  content: "";
+  position: absolute;
+  left: 4px; right: 4px; top: -11px;
+  border-top: 1px solid #1e2427;
 }
 
 .dock__btn {
@@ -179,8 +189,12 @@ body {
   font-size: clamp(5.4px, min(2.28vw, 0.93vh), 15px);
   position: relative;
   width: 42em;
-  padding: 1.5em;
-  border-radius: 5.2em;
+  padding: 1.6em 1.5em 1.5em;
+  /* Less round than it was. A 5.2em radius on a 42em case is a phone's
+     silhouette, and with the fake earpiece gone from the top there was
+     nothing left arguing otherwise. A siren head is a moulded box with
+     softened corners, not a handset. */
+  border-radius: 3.1em;
   background: linear-gradient(168deg, var(--shell-1) 0%, var(--shell-2) 58%, #1b1f21 100%);
   box-shadow:
     inset 0 .18em .4em rgba(255, 255, 255, .17),
@@ -194,16 +208,6 @@ body {
 .remote.is-standby .lcd { opacity: .6; }
 
 .face { display: flex; flex-direction: column; gap: 1.5em; }
-
-/* speaker grille */
-.grille {
-  height: 1.05em;
-  width: 11em;
-  margin: .15em auto .1em;
-  border-radius: .6em;
-  background: repeating-linear-gradient(90deg, #0e1112 0 .22em, #2c3133 .22em .44em);
-  box-shadow: inset 0 .12em .22em rgba(0,0,0,.9), 0 .06em 0 rgba(255,255,255,.08);
-}
 
 /* ------------------------------ display ------------------------------ */
 
@@ -239,16 +243,28 @@ body {
 .chip--off { opacity: .28; }
 .chip--hot { background: var(--lcd-ink); color: #06140c; border-color: var(--lcd-ink); }
 
+/* Segmented, because that is what a level meter on a panel like this is. A
+   smooth bar reads as a web progress indicator; the segments are what say
+   "instrument", and they cost one gradient laid over the top. */
 .lcd__meter {
-  flex: 1; height: .72em; min-width: 4em;
-  border-radius: .36em;
-  background: rgba(125,255,178,.13);
+  position: relative;
+  flex: 1; height: .8em; min-width: 4em;
+  border-radius: .2em;
+  background: rgba(125, 255, 178, .1);
+  box-shadow: inset 0 0 0 1px rgba(125, 255, 178, .16);
   overflow: hidden;
 }
 .lcd__meter > i {
   display: block; height: 100%; width: 0%;
   background: linear-gradient(90deg, var(--lcd-ink), #ffe066 72%, var(--red-hi));
   transition: width .06s linear;
+}
+.lcd__meter::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(90deg,
+    transparent 0 .34em, var(--lcd-bg) .34em .46em);
+  pointer-events: none;
 }
 
 /* ------------------------------ keys ------------------------------ */
@@ -693,12 +709,12 @@ body.is-locked { overflow: hidden; }
   flex: none;
 }
 .brand__mark {
-  width: 5.2em; height: 3.2em;
+  width: 6.6em; height: 4.05em;
   /* The mark carries its own two colours, so it must not inherit one. */
   flex: none;
 }
 .brand__name {
-  font-size: 1.45em;
+  font-size: 1.82em;
   font-weight: 400;
   letter-spacing: .09em;
   /* Same grey as the keys: this reads as printing on the panel, not as UI. */
@@ -712,7 +728,7 @@ body.is-locked { overflow: hidden; }
    rather than as a second word competing with it. */
 .brand__model {
   margin-top: -.15em;
-  font-size: .72em;
+  font-size: .86em;
   font-weight: 600;
   letter-spacing: .26em;
   /* The tracking is applied to the right of the last letter too, which

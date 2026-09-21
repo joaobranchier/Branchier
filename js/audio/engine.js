@@ -188,7 +188,7 @@ export class AudioEngine {
     // like one, and STOP mutes voiceSum for a moment — which would have
     // swallowed the click of the very key that did it.
     this.ui = ctx.createGain();
-    this.ui.gain.value = 0.3;
+    this.ui.gain.value = 0.52;
     this.ui.connect(this.master);
 
     const toBuffer = (r) => {
