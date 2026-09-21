@@ -550,6 +550,37 @@ body {
 }
 .btn--ghost { background: #262c30; color: #dbe3e7; }
 
+/* ------------------------------ donation ------------------------------ */
+
+.pix {
+  margin: 12px 0 4px;
+  padding: 15px 14px 14px;
+  border: 1px solid #27353a;
+  border-radius: 14px;
+  background: #101619;
+  text-align: center;
+}
+.pix__label {
+  display: block;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: #6d7d84;
+}
+.pix__key {
+  display: block;
+  margin: 9px 0 2px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12.5px; line-height: 1.55;
+  color: #a9e6c1;
+  /* Long enough to wrap on a phone, and it must wrap rather than overflow. */
+  word-break: break-all;
+  /* The app turns selection off everywhere, which is right for a faceplate
+     you jab at and wrong for the one string someone may need to copy by
+     hand when both clipboard paths are refused. */
+  -webkit-user-select: text; user-select: text;
+}
+.pix .btn { margin-top: 12px; }
+
 .warn {
   border: 1px solid #5a3a12; background: #241a09; border-radius: 12px;
   padding: 12px 14px; margin: 12px 0;

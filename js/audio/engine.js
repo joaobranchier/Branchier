@@ -75,10 +75,22 @@ export class AudioEngine {
     const Ctor = window.AudioContext || window.webkitAudioContext;
     if (!Ctor) throw new Error('Web Audio API indisponível neste navegador.');
 
-    this.ctx = new Ctor({ latencyHint: 'interactive' });
-    this._startSilentKeepalive();
-    await this.ctx.resume().catch(() => {});
-    this._buildChain();
+    // Safari refuses to create an AudioContext when too many are already
+    // live for this origin, and two copies of the app — a Safari tab and the
+    // home-screen icon — is enough to reach the limit. The throw is the
+    // point: it must leave nothing half-built behind, or the next attempt
+    // finds a context with no chain on it.
+    try {
+      this.ctx = new Ctor({ latencyHint: 'interactive' });
+      this._startSilentKeepalive();
+      await this.ctx.resume().catch(() => {});
+      this._buildChain();
+    } catch (err) {
+      try { this.ctx?.close(); } catch { /* it may never have opened */ }
+      this.ctx = null;
+      this.ready = false;
+      throw err;
+    }
 
     this.ctx.addEventListener?.('statechange', () => {
       this._onStateChange?.(this.ctx.state);
@@ -212,6 +224,23 @@ export class AudioEngine {
 
     this.ceiling.connect(this.analyser);
     this._applyVoicing(0);
+  }
+
+  /**
+   * Gives the audio hardware back.
+   *
+   * Called when the page is genuinely going away rather than merely being
+   * backgrounded. Each live context holds one of the few slots Safari allows
+   * an origin, and a slot still held by a window nobody is looking at is the
+   * reason the next copy of the app cannot open one at all.
+   */
+  release() {
+    if (!this.ctx) return;
+    try { this.ctx.close(); } catch { /* already gone */ }
+    try { this._silentEl?.pause(); } catch {}
+    this._silentEl = null;
+    this.ctx = null;
+    this.ready = false;
   }
 
   /** Where a faceplate voice connects. */

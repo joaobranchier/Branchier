@@ -908,6 +908,51 @@ console.log('\n--- the timbre, measured through the real chain ---');
   ok('hi-lo keeps its weight too', h.low > 90, `${h.low.toFixed(0)}% até 1250 Hz`);
 }
 
+console.log('\n--- the panel survives the audio refusing to start ---');
+{
+  // Safari allows an origin only a few live AudioContexts, and two copies of
+  // the app open at once reaches the limit: a tab plus the home-screen icon,
+  // which is what adding it to the home screen again without removing the old
+  // one leaves you with. The constructor then throws — and that exception used
+  // to reject the key handler, so the press never reached the action. Not for
+  // that key: for every key, on every press, from then on. The panel was dead.
+  const ctxDead = await b.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  await ctxDead.addInitScript(() => {
+    const refuse = function () { throw new Error('NotAllowedError: too many AudioContexts'); };
+    Object.defineProperty(window, 'AudioContext', { value: refuse, configurable: true });
+    Object.defineProperty(window, 'webkitAudioContext', { value: refuse, configurable: true });
+  });
+  const pd = await ctxDead.newPage();
+  const deadErrs = [];
+  pd.on('pageerror', (e) => deadErrs.push(e.message));
+  await pd.goto(`${BASE}/index.html`);
+  await pd.waitForTimeout(600);
+  await pd.locator('.btn[data-close]').click();
+  await pd.waitForTimeout(300);
+
+  await pd.locator('[data-tone="wail1"]').click();
+  await pd.waitForTimeout(500);
+  ok('a dead audio context throws nothing at the page', deadErrs.length === 0,
+    deadErrs.slice(0, 2).join(' | '));
+  ok('and the panel says why instead of going quiet',
+    /indispon/i.test(await pd.locator('#hint').innerText()),
+    (await pd.locator('#hint').innerText()).slice(0, 48));
+
+  // Everything that is not a sound still has to work.
+  await pd.locator('[data-act="lmb"]').click();
+  await pd.waitForTimeout(400);
+  ok('the lightbar still works without audio',
+    !(await pd.locator('#strobe').evaluate((e) => e.hidden)));
+  await pd.locator('[data-act="lmb"]').click();
+  await pd.waitForTimeout(300);
+
+  await pd.locator('#dockGuide').click();
+  await pd.waitForTimeout(500);
+  ok('and the guide still opens', !(await pd.locator('#guide').evaluate((e) => e.hidden)));
+  ok('still nothing thrown', deadErrs.length === 0, deadErrs.slice(0, 2).join(' | '));
+  await ctxDead.close();
+}
+
 console.log('\n--- MOD moves the rumble layer with the siren ---');
 {
   const started = () => p.evaluate(() => window.__started);
@@ -962,6 +1007,28 @@ console.log('\n--- the colophon, and the settings sheet ---');
       return t.getBoundingClientRect().bottom <= s.getBoundingClientRect().top + 1;
     }));
   ok('every settings row stacks its description', stacked);
+
+  // The donation block, and the one thing about it that matters: the key on
+  // screen and the key on the clipboard have to be the same string, since a
+  // Pix key that copies wrong sends someone's money to nobody.
+  const shownKey = (await p.locator('#pixKey').innerText()).trim();
+  ok('the Pix key is on screen', /^[0-9a-f-]{36}$/.test(shownKey), shownKey);
+
+  await ctx.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await p.locator('#bPix').click();
+  await p.waitForTimeout(400);
+  const copied = await p.evaluate(() => navigator.clipboard.readText());
+  ok('and the button copies exactly it', copied === shownKey, copied);
+  ok('the button says it worked',
+    /copiada/i.test(await p.locator('#bPix').innerText()),
+    await p.locator('#bPix').innerText());
+
+  // If both clipboard paths are refused, the key still has to be selectable
+  // by hand — the app switches selection off everywhere else.
+  const selectable = await p.locator('#pixKey').evaluate((e) =>
+    getComputedStyle(e).webkitUserSelect !== 'none'
+      && getComputedStyle(e).userSelect !== 'none');
+  ok('and stays selectable by hand', selectable);
 
   await p.locator('.guide__close').click();
   await p.waitForTimeout(300);

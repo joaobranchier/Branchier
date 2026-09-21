@@ -75,6 +75,23 @@ class Controller {
   setVolume(v) { this.engine.setVolume(v); this.setPref('volume', v); }
 
   /**
+   * Says that the audio could not start, and what to do about it.
+   *
+   * The advice is specific because the cause usually is: Safari allows an
+   * origin only a few live AudioContexts, and the ordinary way to exceed
+   * that is to have the app open twice — a Safari tab and the home-screen
+   * icon, which is exactly what adding it to the home screen again without
+   * removing the old one produces.
+   */
+  audioUnavailable() {
+    const hint = document.getElementById('hint');
+    if (!hint) return;
+    hint.style.opacity = '1';
+    hint.dataset.state = '';
+    hint.textContent = 'Áudio indisponível — feche as outras abas do SireFlex e reabra';
+  }
+
+  /**
    * The key click.
    * @returns {boolean} whether it actually sounded — false before the audio
    * exists, which is how the first press of a session gets one anyway.
@@ -633,6 +650,9 @@ const ACTIONS = {
 /** Momentary keys: the sound lasts exactly as long as the finger is down. */
 const MOMENTARY = { horn: 'airhorn', manual: 'manual' };
 
+/** The keys that cannot do anything without a working audio context. */
+const NEEDS_AUDIO = new Set(['tone', 'horn', 'manual', 'rumble', 'auto']);
+
 const LATCHING = new Set(['tone', 'eq', 'auto', 'mix', 'rumble', 'lmb', 'light']);
 
 /**
@@ -679,9 +699,19 @@ function wire(el) {
     if (momentaryTone && e.pointerId !== undefined) {
       try { el.setPointerCapture(e.pointerId); } catch {}
     }
-    await ctl.ensureAudio();
+    // The panel has to survive the audio failing. This await had no catch,
+    // so an exception from the AudioContext rejected the handler and the two
+    // lines below never ran — for that key, for every key, for every press
+    // from then on. Nothing on the faceplate responded to anything, which is
+    // a far worse failure than being unable to make a sound.
+    const ready = await ctl.ensureAudio().then(() => true, () => false);
     if (!clacked) ctl.clack('down');
     if (!down) return;
+    if (!ready) {
+      ctl.audioUnavailable();
+      // The lights, the guide and the settings do not need a sound card.
+      if (NEEDS_AUDIO.has(act)) return;
+    }
     if (momentaryTone) ctl.press(act, momentaryTone);
     else ACTIONS[act]?.(el);
   };
@@ -743,7 +773,14 @@ addEventListener('pointercancel', onWindowUp);
 // And anything that takes the app away is a release: nothing that stops the
 // user from touching the glass may leave a tone sounding.
 addEventListener('blur', releaseAllHeld);
-addEventListener('pagehide', releaseAllHeld);
+addEventListener('pagehide', (e) => {
+  releaseAllHeld();
+  // persisted means the page is going to the back/forward cache and will be
+  // resumed as it was; anything else is the page being thrown away, and a
+  // context kept alive past that point is a slot the next copy of the app
+  // cannot have.
+  if (!e.persisted) ctl.engine.release();
+});
 
 /* ------------------------------- dock ------------------------------- */
 

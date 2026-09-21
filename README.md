@@ -277,7 +277,7 @@ navegador se acha no direito de reaproveitar a cópia. O CI estava certo.
 
 ```
 67/67 checks passed      (áudio)
-125/125 UI checks passed (navegador)
+134/134 UI checks passed (navegador)
 7/7 update checks passed (publicação)
 ```
 
@@ -306,6 +306,12 @@ Não use para se passar por autoridade.
   415 Hz (sol♯); harmônicos acima de 5 kHz.
 - Federal Signal Q2B — rotor de 14 portas, 123 dB a 3 m, fundamental variável
   com a rotação (≈400–800 Hz em regime), embreagem de roda-livre.
+
+## Apoie o projeto
+
+O SireFlex é gratuito, sem anúncios e sem rastreamento. Quem quiser ajudar a
+financiar o desenvolvimento encontra a chave Pix em **Ajustes**, com um botão
+que a copia.
 
 ---
 

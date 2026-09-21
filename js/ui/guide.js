@@ -12,6 +12,9 @@ import { PATTERN_LIST } from './strobe.js';
 import { isIOS, isStandalone } from '../platform.js';
 import { BUILD, BUILD_DATE } from '../build.js';
 
+/** The project's Pix key, for the donation block in Settings. */
+const PIX_KEY = 'be3fd7f9-5d4d-435a-84dd-404774ac812d';
+
 const el = () => document.getElementById('guide');
 let ctl = null;
 let tab = 'tones';
@@ -272,6 +275,15 @@ function pageSettings() {
       <button class="gplay" id="bUpd" type="button"><span class="gplay__txt">Verificar</span></button>
     </div>
 
+    <h3>Apoie o projeto</h3>
+    <p class="gsmall">O SireFlex é gratuito, sem anúncios e sem rastreamento. Se ele
+       for útil para você, uma doação ajuda a manter o desenvolvimento.</p>
+    <div class="pix">
+      <span class="pix__label">Chave Pix</span>
+      <code class="pix__key" id="pixKey">${PIX_KEY}</code>
+      <button class="btn" id="bPix" type="button">Copiar chave</button>
+    </div>
+
     <p class="gcredit">
       <b>Branchier Law&nbsp;Tech</b>
       <span class="gcredit__year">2026</span>
@@ -400,6 +412,46 @@ function wireSettings(root) {
   toggle('#tClack', 'clack', (v) => { if (v) ctl.clack('down'); });
 
   root.querySelector('#bUpd').addEventListener('click', checkForUpdate);
+  root.querySelector('#bPix').addEventListener('click', (e) => copyPix(e.currentTarget));
+}
+
+/**
+ * Puts the Pix key on the clipboard.
+ *
+ * Two paths, because the Clipboard API is not everywhere this app runs and
+ * refusing to copy without saying so is worse than not offering the button.
+ * The fallback is a selected text node, which needs an explicit selection
+ * range on iOS — select() alone selects nothing there — and a readonly field
+ * so the keyboard does not come up on the way past.
+ *
+ * Whatever happens, the key itself stays selectable on screen, so a person
+ * whose browser refuses both can still copy it by hand.
+ */
+async function copyPix(btn) {
+  let done = false;
+  try {
+    await navigator.clipboard.writeText(PIX_KEY);
+    done = true;
+  } catch {
+    done = copyBySelection(PIX_KEY);
+  }
+  btn.textContent = done ? 'Chave copiada' : 'Toque e segure a chave para copiar';
+  clearTimeout(copyPix._t);
+  copyPix._t = setTimeout(() => { btn.textContent = 'Copiar chave'; }, 2600);
+}
+
+function copyBySelection(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0';
+  document.body.appendChild(ta);
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { /* nothing else to try */ }
+  ta.remove();
+  return ok;
 }
 
 /**
