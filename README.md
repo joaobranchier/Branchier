@@ -1,8 +1,8 @@
 # SireFlex
 
-**Sire**ne + giro**flex**. Um controlador de sirene, buzina e giroflex que roda no iPhone — sem App Store, sem
-Xcode, sem conta de desenvolvedor. Abre no Safari, vai para a tela de início e
-funciona offline.
+Um controlador de sirene, buzina e giroflex que roda no iPhone — sem App
+Store, sem Xcode, sem conta de desenvolvedor. Abre no Safari, vai para a tela
+de início e funciona offline.
 
 O ponto de partida foi o faceplate do *Siren Remote Simulator* (Android), que
 não tem versão para iOS. O layout foi recriado; o áudio foi feito do zero.
@@ -277,7 +277,7 @@ navegador se acha no direito de reaproveitar a cópia. O CI estava certo.
 
 ```
 67/67 checks passed      (áudio)
-120/120 UI checks passed (navegador)
+122/122 UI checks passed (navegador)
 7/7 update checks passed (publicação)
 ```
 

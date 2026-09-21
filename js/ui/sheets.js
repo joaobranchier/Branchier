@@ -37,11 +37,8 @@ export function openWelcome() {
   const needsInstall = isIOS() && !isStandalone();
   open(`
     <h2>SireFlex</h2>
-    <p><strong>Sire</strong>ne + giro<strong>flex</strong>: um controlador completo, com todos
-       os tons <strong>sintetizados ao vivo</strong>
-       no seu aparelho — nada de arquivos de áudio. Cada tom foi calibrado pelas
-       especificações publicadas dos fabricantes: as faixas de frequência e as
-       taxas de varredura são as de verdade, não aproximações de ouvido.</p>
+    <p>Simulador de controladora de sirene, buzina e giroflex. Os tons seguem as
+       faixas de frequência e as velocidades de varredura de equipamentos reais.</p>
 
     <div class="warn">
       <p><strong>Aviso de uso.</strong> Simulador para uso pessoal, estudo e

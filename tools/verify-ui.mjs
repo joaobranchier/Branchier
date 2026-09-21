@@ -744,6 +744,17 @@ console.log('\n--- the dock, and the key click ---');
   await p.locator('.guide__close').click();
   await p.waitForTimeout(300);
 
+  // The keyboard path. These act on pointerdown, so a click is how a keyboard
+  // and a screen reader reach them — and the click that follows a tap has to
+  // be told apart from that one, or every tap fires the action twice.
+  await p.locator('#dockGuide').focus();
+  await p.keyboard.press('Enter');
+  await p.waitForTimeout(400);
+  ok('Enter opens the guide from the dock',
+    !(await p.locator('#guide').evaluate((e) => e.hidden)));
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(300);
+
   await p.locator('#dockSet').click();
   await p.waitForTimeout(400);
   ok('and the settings key lands on settings',
@@ -876,6 +887,37 @@ console.log('\n--- the timbre, measured through the real chain ---');
 
   const h = await balance('hilo');
   ok('hi-lo keeps its weight too', h.low > 90, `${h.low.toFixed(0)}% até 1250 Hz`);
+}
+
+console.log('\n--- MOD moves the rumble layer with the siren ---');
+{
+  const started = () => p.evaluate(() => window.__started);
+  await p.locator('[data-act="stop"]').click();
+  await p.waitForTimeout(600);
+  // Leave RUMBLE off first, to learn what one MOD press costs on its own.
+  await p.locator('[data-tone="wail1"]').click();
+  await p.waitForTimeout(600);
+  const a = await started();
+  await p.locator('[data-act="mod"]').click();
+  await p.waitForTimeout(600);
+  const alone = (await started()) - a;
+
+  // Now with the layer running. The Rumbler exists to follow the siren above
+  // it; MOD used to change the siren's sweep rate and leave the layer at the
+  // old one, because the call that was supposed to carry the rate went to a
+  // method this voice does not implement and did nothing at all.
+  await p.locator('[data-act="rumble"]').click();
+  await p.waitForTimeout(700);
+  const b = await started();
+  await p.locator('[data-act="mod"]').click();
+  await p.waitForTimeout(700);
+  const withLayer = (await started()) - b;
+  ok('MOD rebuilds the rumble layer as well as the siren', withLayer > alone,
+    `${alone} voz(es) sem a camada, ${withLayer} com ela`);
+
+  await p.locator('[data-act="rumble"]').click();
+  await p.locator('[data-act="stop"]').click();
+  await p.waitForTimeout(600);
 }
 
 console.log('\n--- the colophon, and the settings sheet ---');

@@ -221,6 +221,10 @@ class Controller {
     const want = this.rumble && (this.active.size > 0 || this.held.size > 0);
     const id = this.primaryId;
     const source = id ? TONES[id] : TONES.wail1;
+    const rate = MOD_STEPS[this.modStep].factor;
+    // The sweep rate is part of what the layer has to match, not just the
+    // tone: MOD used to change one and not the other.
+    const key = `${source.id}:${rate}`;
 
     if (!want) {
       this._retire(this.rumbleVoice);
@@ -228,11 +232,11 @@ class Controller {
       this._rumbleSource = null;
       return;
     }
-    if (this.rumbleVoice && this._rumbleSource === source.id) return;
+    if (this.rumbleVoice && this._rumbleSource === key) return;
     // The source changed, so rebuild it to track the new tone.
     this._retire(this.rumbleVoice);
-    this._rumbleSource = source.id;
-    this.rumbleVoice = createVoice(this.engine, TONES.rumbler, { source });
+    this._rumbleSource = key;
+    this.rumbleVoice = createVoice(this.engine, TONES.rumbler, { source, rate });
     this.rumbleVoice.start();
   }
 
@@ -415,7 +419,7 @@ class Controller {
     this.modStep = (this.modStep + 1) % MOD_STEPS.length;
     const step = MOD_STEPS[this.modStep];
     for (const v of this.active.values()) v.setRate(step.factor);
-    this.rumbleVoice?.setRate(step.factor);
+    this.syncRumble();
     document.getElementById('chipMod').textContent = step.label;
     this.setKey('[data-act="mod"]', this.modStep !== 1);
   }
@@ -758,14 +762,21 @@ const dock = (id, fn, { wakesAudio = true } = {}) => {
   if (!el) return;
   // A tap produces a pointerdown and then a synthesised click, and on iOS
   // that click can carry detail 0 — which is also how a keyboard activation
-  // looks. Telling them apart by detail alone would fire the action twice
-  // on a phone, and on the power key that means switching it off and back
-  // on in a single tap. Whether a pointer was involved is not a guess.
-  let viaPointer = false;
+  // looks. Telling them apart by detail alone would fire the action twice on
+  // a phone, and on the power key that means switching it off and back on in
+  // a single tap.
+  //
+  // Recorded as a time rather than a flag. A flag set on pointerdown has to
+  // be cleared by something, and the one case that clears nothing is a
+  // finger that presses this key and lifts somewhere else: no click arrives,
+  // the flag stays raised, and the next Enter on that key is swallowed. A
+  // timestamp needs no cleanup, and a keyboard user is not touching the
+  // glass at all, so theirs is always long past.
+  let pointerAt = -Infinity;
 
   el.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    viaPointer = true;
+    pointerAt = performance.now();
     el.classList.add('is-down');
     ctl.haptics.tap();
     // Acts immediately, and never behind an await. The first version waited
@@ -780,16 +791,17 @@ const dock = (id, fn, { wakesAudio = true } = {}) => {
     if (ctl.clack('down') || !wakesAudio) return;
     ctl.ensureAudio().then(() => ctl.clack('down')).catch(() => {});
   });
+
   const up = () => el.classList.remove('is-down');
   el.addEventListener('pointerup', up);
-  el.addEventListener('pointercancel', () => { viaPointer = false; up(); });
+  el.addEventListener('pointercancel', up);
   el.addEventListener('blur', up);
   el.addEventListener('contextmenu', (e) => e.preventDefault());
   // These are buttons, and a click is what a keyboard and a screen reader
-  // send. A click that follows this element's own pointerdown is that press
-  // arriving a second time, and is dropped.
+  // send. A click arriving on the heels of this key's own pointerdown is
+  // that same press a second time, and is dropped.
   el.addEventListener('click', () => {
-    if (viaPointer) { viaPointer = false; return; }
+    if (performance.now() - pointerAt < 700) return;
     fn();
   });
 };

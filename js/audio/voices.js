@@ -594,8 +594,22 @@ class ManualVoice extends Voice {
 class RumbleVoice extends Voice {
   constructor(engine, spec, source, opts) {
     super(engine, spec, 'rumble', opts);
-    this.source = source;
-    this.buffers = getBuffers(engine, spec, { source, sourceId: source?.id });
+    /**
+     * The layer sweeps with the siren it sits under, MOD included.
+     *
+     * It used to be handed the sweep rate through setRate, which this class
+     * does not implement — so MOD sped the siren up and left the rumble
+     * behind at the old rate, and the two drifted apart. Following the tone
+     * above it is the entire reason a Rumbler exists, so the rate is baked
+     * into the render instead, where it cannot be silently ignored.
+     */
+    const rate = opts?.rate ?? 1;
+    this.rateFactor = rate;
+    this.source = source && rate !== 1
+      ? { ...source, rateHz: source.rateHz * rate }
+      : source;
+    source = this.source;
+    this.buffers = getBuffers(engine, spec, { source, sourceId: source?.id, rate });
     this.src = this._source(this.buffers);
     this.mid = (spec.lo + spec.hi) / 2;
   }
@@ -622,7 +636,8 @@ export function createVoice(engine, spec, context = {}) {
     case 'horn':       return new HornVoice(engine, spec, opts);
     case 'mechanical': return new MechVoice(engine, spec, opts);
     case 'manual':     return new ManualVoice(engine, spec, opts);
-    case 'rumble':     return new RumbleVoice(engine, spec, context.source, opts);
+    case 'rumble':     return new RumbleVoice(engine, spec, context.source,
+                                               { ...opts, rate: context.rate });
     default: throw new Error(`Tipo de voz desconhecido: ${spec.kind}`);
   }
 }
