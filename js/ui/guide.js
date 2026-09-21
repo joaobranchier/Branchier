@@ -81,8 +81,7 @@ function toneCard(id) {
 function pageTones() {
   return `
     <p class="gintro">Toque em <b>Ouvir</b> para escutar cada tom aqui mesmo — o
-       painel atrás fica como estava. O gráfico de cada cartão é desenhado a partir
-       dos mesmos números que o sintetizador usa.</p>
+       painel atrás fica como estava.</p>
     ${Object.keys(TONES).map(toneCard).join('')}`;
 }
 
@@ -91,7 +90,7 @@ const KEYS = [
     ['WAIL-1 / WAIL-2', 'Travam a varredura lenta. Toque de novo para desligar.'],
     ['YELP', 'Varredura rápida, para curta distância.'],
     ['HI-LO', 'Dois tons fixos alternando, padrão europeu.'],
-    ['PHSR', 'Varredura muito rápida com batimento. Curtíssima distância. É o <b>canal de prioridade</b>: apertado por cima de outra sirene, ele assume e a sirene fica esperando, com a tecla dela apagada mas acesa por dentro. Desligue o PHSR e ela volta sozinha — você não precisa reescolher o tom no meio do trânsito.'],
+    ['PHSR', 'Varredura muito rápida, para curtíssima distância. É o <b>canal de prioridade</b>: apertado por cima de outra sirene, assume o lugar dela — desligue e ela volta sozinha.'],
     ['WA.WA', 'Varredura média com tremolo profundo.'],
     ['Q-SIREN', 'A eletromecânica. Sobe em 2–3 s e desce sozinha por ~30 s.'],
     ['AIR HORN', 'Momentâneo: só soa enquanto o dedo está em cima.'],
@@ -163,27 +162,16 @@ function pageHow() {
        coisas diferentes.</p>
 
     <h3>Como o som é feito aqui</h3>
-    <p class="gcard__body">Não existe um único arquivo de áudio neste app. Cada tom é
-       <b>calculado amostra a amostra</b>, porque as coisas que fazem esses sons serem
-       reconhecíveis não cabem num punhado de osciladores. Uma buzina de ar é uma
-       <b>palheta cortando o fluxo</b>, e o que se ouve como aspereza é ela não repetir
-       exatamente igual a cada período. Uma Q-siren é um <b>rotor cortando ar</b>, e o
-       ruído dela é modulado pelo próprio fluxo que gera o tom — não é chiado por
-       baixo, é o ar sendo picado.</p>
-    <p class="gcard__body">As sirenes de varredura são uma onda quadrada varrida: os
-       harmônicos são somados um a um e descartados ao passar do limite de Nyquist, o
-       que é o motivo de a varredura nunca devolver nota errada. A buzina são
-       <b>duas</b> trombetas a uma terça menor — conjuntos duplos de fábrica são
-       afinados em intervalo, e um acorde maior soaria musical, tipo órgão. A Q-siren
-       segue a física do rotor: <code>f = (rpm ÷ 60) × portas</code>, com 14 portas,
-       e o som irradiado é a <i>derivada</i> do fluxo, o que transforma a área aberta
-       triangular numa onda quadrada assimétrica.</p>
-    <p class="gcard__body">Cada família passa pelo <b>seu</b> radiador, porque uma
-       corneta com driver de compressão, uma trombeta com pavilhão e um rotor em
-       carcaça de aço não são o mesmo objeto. E o radiador das sirenes assume onde
-       você está: uma corneta re-entrante é muito direcional no agudo, então da rua,
-       fora do eixo dela, o topo cai e a fundamental não. É por isso que sirene de
-       verdade ao ar livre é mais redonda do que sirene apontada para a sua cara.</p>
+    <p class="gcard__body">Não existe um único arquivo de áudio neste app: todo som
+       é gerado na hora, no próprio aparelho. É por isso que ele abre instantâneo,
+       funciona sem internet e sustenta um tom por horas sem emenda audível.</p>
+    <p class="gcard__body">Cada tom imita o aparelho que o produz. Uma buzina de ar
+       é uma <b>palheta cortando o fluxo</b>, e o que se ouve como aspereza é ela não
+       repetir exatamente igual a cada sopro. Uma Q-siren é um <b>rotor cortando
+       ar</b>: o ruído dela não é chiado por baixo do tom, é o próprio ar sendo
+       picado. E a sirene eletrônica sai por uma corneta muito direcional no agudo —
+       da rua, fora do eixo dela, o som chega mais redondo do que chegaria apontado
+       para a sua cara.</p>
 
     <h3>De onde vêm os números</h3>
     <p class="gsmall">
@@ -219,8 +207,6 @@ function pageSettings() {
     </div>
 
     <h3>Giroflex</h3>
-    <p class="gsmall" style="margin:-4px 0 12px">Vem desligado e só acende quando você
-       aperta <b>LED</b> ou <b>LUZ</b>. Nenhuma sirene liga a luz sozinha.</p>
     <div class="field">
       <label for="sPat">Padrão</label>
       <select id="sPat">
@@ -233,26 +219,27 @@ function pageSettings() {
       <output id="oBri">${Math.round(p.brightness * 100)}%</output>
     </div>
 
+    <!-- Labels only. Every one of these had a line under it explaining how it
+         worked, and how it works is not the user's problem: a switch called
+         "Som dos botões" does not need to be told that the click is routed
+         past the siren bus. What is left is the one case where a control is
+         disabled and would otherwise look broken. -->
     <h3>Comportamento</h3>
     <div class="switchrow">
-      <div><span>Manter a tela acesa</span>
-        <small>Enquanto algo estiver tocando. Sem isso o iPhone bloqueia e o som para.</small></div>
+      <div><span>Manter a tela acesa</span></div>
       <button class="toggle" id="tWake" aria-pressed="${p.wakeLock}" aria-label="Manter a tela acesa"></button>
     </div>
     <div class="switchrow">
-      <div><span>Som dos botões</span>
-        <small>O "clack" a cada toque. Ele sai por fora das sirenes, então o
-           STOP não engole o próprio clique.</small></div>
+      <div><span>Som dos botões</span></div>
       <button class="toggle" id="tClack" aria-pressed="${p.clack}" aria-label="Som dos botões"></button>
     </div>
     <div class="switchrow">
-      <div><span>Resposta tátil</span>
-        <small>${ctl.haptics.supported ? 'Vibração curta a cada toque.' : 'Não disponível neste navegador.'}</small></div>
+      <div><span>Resposta tátil</span>${ctl.haptics.supported ? ''
+        : '<small>Não disponível neste aparelho.</small>'}</div>
       <button class="toggle" id="tHap" aria-pressed="${p.haptics}" aria-label="Resposta tátil"${ctl.haptics.supported ? '' : ' disabled style="opacity:.4"'}></button>
     </div>
     <div class="switchrow">
-      <div><span>AUTO troca a cada</span>
-        <small>Tempo em cada tom no modo de varredura automática.</small></div>
+      <div><span>Intervalo AUTO</span></div>
       <select id="sAuto" class="sel--inline">
         ${[4, 6, 8, 12].map((s) => `<option value="${s}"${s === p.autoSecs ? ' selected' : ''}>${s}s</option>`).join('')}
       </select>
@@ -272,14 +259,15 @@ function pageSettings() {
       <p><strong>Fotossensibilidade.</strong> LED e LUZ piscam forte. Quem tem
          epilepsia fotossensível deve deixá-los desligados.</p>
     </div>
-    <p class="gsmall">Sem anúncios, sem rastreamento, sem rede. Nenhum dado sai do
-       aparelho — os ajustes ficam no armazenamento local do navegador.</p>
+    <p class="gsmall">Sem anúncios e sem rastreamento. Nada sai do aparelho.</p>
 
     <h3>Versão</h3>
     <div class="switchrow">
+      <!-- The status line starts empty and fills in when the button is
+           pressed. Explaining beforehand what a button called "Verificar"
+           is about to do is telling someone what they already know. -->
       <div><span>SireFlex ${BUILD} &middot; ${BUILD_DATE}</span>
-        <small id="oUpd">O app se atualiza sozinho ao ser reaberto. Este botão
-           força a verificação agora.</small></div>
+        <small id="oUpd"></small></div>
       <button class="gplay" id="bUpd" type="button"><span class="gplay__txt">Verificar</span></button>
     </div>
 

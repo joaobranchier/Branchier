@@ -7,5 +7,5 @@
  * história. tools/verify-audio.mjs falha se alguém mudar um e esquecer o outro.
  */
 
-export const BUILD = 'v16';
-export const BUILD_DATE = '20/09/2026';
+export const BUILD = 'v17';
+export const BUILD_DATE = '21/09/2026';
