@@ -44,18 +44,20 @@ export function openWelcome() {
        taxas de varredura são as de verdade, não aproximações de ouvido.</p>
 
     <div class="warn">
-      <p><strong>Use com responsabilidade.</strong> Imitar sirene de viatura em via
-         pública é infração — e, dependendo da situação, crime — na maior parte
-         do mundo, Brasil incluído. Isto aqui é um simulador para uso pessoal,
-         estudo e produção de áudio. Não use para se passar por autoridade nem
-         para obrigar alguém a sair da frente.</p>
+      <p><strong>Aviso de uso.</strong> Simulador para uso pessoal, estudo e
+         produção de áudio. Imitar sirene de viatura em via pública é infração e
+         pode configurar crime. Não use para se passar por autoridade.</p>
     </div>
 
     <div class="warn">
-      <p><strong>Volume e audição.</strong> Ligado a uma caixa de som, esse material
-         chega fácil a níveis que machucam. Comece baixo. E os botões
-         <strong>LED</strong> e <strong>LUZ</strong> piscam forte — se você tem
-         epilepsia fotossensível, deixe-os desligados.</p>
+      <p><strong>Aviso de volume.</strong> Níveis altos podem causar danos
+         auditivos. Comece baixo.</p>
+    </div>
+
+    <div class="warn">
+      <p><strong>Aviso de fotossensibilidade.</strong> LED e LUZ produzem luzes
+         piscantes, que podem desencadear crises em pessoas com epilepsia
+         fotossensível.</p>
     </div>
 
     ${needsInstall ? `

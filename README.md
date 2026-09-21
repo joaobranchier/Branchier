@@ -286,16 +286,14 @@ mão — sem dependência de biblioteca de imagem.
 
 ## Avisos
 
-**Volume e audição.** Ligado a uma caixa de som, esse material chega fácil a
-níveis que machucam. Comece baixo.
+**Aviso de volume.** Níveis altos podem causar danos auditivos. Comece baixo.
 
-**Fotossensibilidade.** Os botões LED e LUZ piscam forte. Quem tem epilepsia
-fotossensível deve deixá-los desligados.
+**Aviso de fotossensibilidade.** LED e LUZ produzem luzes piscantes, que podem
+desencadear crises em pessoas com epilepsia fotossensível.
 
-**Uso.** Simulador para uso pessoal, estudo e produção de áudio. Imitar sirene
-de viatura em via pública é infração — e, dependendo da situação, crime — na
-maior parte do mundo, Brasil incluído. Não use para se passar por autoridade
-nem para obrigar alguém a sair da frente.
+**Aviso de uso.** Simulador para uso pessoal, estudo e produção de áudio.
+Imitar sirene de viatura em via pública é infração e pode configurar crime.
+Não use para se passar por autoridade.
 
 ## Fontes dos números
 

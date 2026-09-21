@@ -252,12 +252,13 @@ function pageSettings() {
        cima), role e escolha <b>Adicionar à Tela de Início</b>.</p>` : ''}
 
     <div class="warn">
-      <p><strong>Volume e audição.</strong> Ligado a uma caixa de som, esse material
-         chega fácil a níveis que machucam. Comece baixo.</p>
+      <p><strong>Aviso de volume.</strong> Níveis altos podem causar danos
+         auditivos. Comece baixo.</p>
     </div>
     <div class="warn">
-      <p><strong>Fotossensibilidade.</strong> LED e LUZ piscam forte. Quem tem
-         epilepsia fotossensível deve deixá-los desligados.</p>
+      <p><strong>Aviso de fotossensibilidade.</strong> LED e LUZ produzem luzes
+         piscantes, que podem desencadear crises em pessoas com epilepsia
+         fotossensível.</p>
     </div>
     <p class="gsmall">Sem anúncios e sem rastreamento. Nada sai do aparelho.</p>
 
