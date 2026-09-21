@@ -37,8 +37,8 @@ export function openWelcome() {
   const needsInstall = isIOS() && !isStandalone();
   open(`
     <h2>SireFlex</h2>
-    <p>Simulador de controladora de sirene, buzina e giroflex. Os tons seguem as
-       faixas de frequência e as velocidades de varredura de equipamentos reais.</p>
+    <p>Um controlador de sirene e buzina leve e completo. Roda em qualquer
+       dispositivo!</p>
 
     <div class="warn">
       <p><strong>Aviso de uso.</strong> Simulador para uso pessoal, estudo e
