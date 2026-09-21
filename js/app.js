@@ -50,6 +50,11 @@ class Controller {
     this.autoIndex = 0;
     this.rumble = false;
     this.rumbleVoice = null;
+    /**
+     * Tones the priority channel is holding for the operator: stopped, but
+     * coming back the moment the override is switched off.
+     */
+    this.suspended = [];
     /** Tone being auditioned from the guide, separate from the faceplate. */
     this.previewVoice = null;
     this.previewId = null;
@@ -155,11 +160,60 @@ class Controller {
     for (const id of [...this.active.keys()]) this.stopTone(id);
   }
 
+  /**
+   * A key press on a tone.
+   *
+   * PHSR is not simply another tone in the row. It is the priority channel,
+   * and on a real unit it goes *over* whatever is selected: you reach for it
+   * to cut through the car in front, and when you let it go the siren you
+   * had chosen comes back by itself. Having to re-select your tone
+   * afterwards would defeat the one button you press without looking.
+   *
+   * So pressing it suspends what is latched rather than cancelling it, and
+   * pressing it again resumes exactly that. Choosing any other tone is a
+   * deliberate change of mind and clears the suspension; MIX is layering
+   * rather than selecting, so the override does not apply there.
+   */
   toggleTone(id) {
-    if (this.active.has(id)) { this.stopTone(id); return; }
+    const spec = TONES[id];
+
+    if (this.active.has(id)) {
+      this.stopTone(id);
+      // Releasing the override hands the panel back to what it interrupted.
+      if (spec.override) this.resumeSuspended();
+      return;
+    }
+
+    if (spec.override && !this.mix && this.active.size > 0) {
+      this.suspended = [...this.active.keys()];
+      this.stopAllTones();
+      for (const s of this.suspended) this.setKey(`[data-tone="${s}"]`, true, 'armed');
+      this.startTone(id);
+      return;
+    }
+
+    // Any other choice is the operator changing their mind, and whatever the
+    // override was holding for them is not coming back.
+    if (!spec.override) this.clearSuspended();
     // Without MIX a controller is radio-button: one tone at a time.
     if (!this.mix) this.stopAllTones();
     this.startTone(id);
+  }
+
+  /** Brings back whatever the override interrupted. */
+  resumeSuspended() {
+    const back = this.suspended;
+    this.suspended = [];
+    for (const id of back) {
+      this.setKey(`[data-tone="${id}"]`, false, 'armed');
+      this.startTone(id);
+    }
+  }
+
+  /** Forgets it instead, and puts the waiting keys out. */
+  clearSuspended() {
+    for (const id of this.suspended) this.setKey(`[data-tone="${id}"]`, false, 'armed');
+    this.suspended = [];
   }
 
   /** Keeps the low-frequency layer following whatever is currently playing. */
@@ -371,6 +425,7 @@ class Controller {
     this.setKey('[data-act="auto"]', this.auto);
     clearInterval(this.autoTimer);
     if (!this.auto) return;
+    this.clearSuspended();
     this.stopAllTones();
     this.autoIndex = 0;
     this.startTone(AUTO_CYCLE[0]);
@@ -426,6 +481,7 @@ class Controller {
    */
   panic() {
     this.cancelAuto();
+    this.clearSuspended();
     clearTimeout(this._previewTimer);
     this.previewVoice?.kill();
     this.previewVoice = null;
@@ -482,9 +538,19 @@ class Controller {
     }
   }
 
-  setKey(selector, on) {
+  setKey(selector, on, state = 'on') {
     const el = document.querySelector(selector);
     if (!el) return;
+    if (state === 'armed') {
+      el.classList.toggle('is-armed', on);
+      // The dim key says "waiting" to anyone looking at it. Nothing said it
+      // to anyone who is not: aria-pressed is false either way, because the
+      // tone genuinely is not sounding.
+      const name = el.querySelector('.key__lbl')?.textContent.trim() ?? '';
+      if (on) el.setAttribute('aria-label', `${name} — em espera, volta quando o PHSR desligar`);
+      else el.removeAttribute('aria-label');
+      return;
+    }
     el.classList.toggle('is-on', on);
     // A latched key is a toggle, and a screen reader has no other way to
     // learn that the amber backlight means "this tone is running".
@@ -690,8 +756,16 @@ const nudge = (delta) => {
 const dock = (id, fn, { wakesAudio = true } = {}) => {
   const el = document.getElementById(id);
   if (!el) return;
+  // A tap produces a pointerdown and then a synthesised click, and on iOS
+  // that click can carry detail 0 — which is also how a keyboard activation
+  // looks. Telling them apart by detail alone would fire the action twice
+  // on a phone, and on the power key that means switching it off and back
+  // on in a single tap. Whether a pointer was involved is not a guess.
+  let viaPointer = false;
+
   el.addEventListener('pointerdown', (e) => {
     e.preventDefault();
+    viaPointer = true;
     el.classList.add('is-down');
     ctl.haptics.tap();
     // Acts immediately, and never behind an await. The first version waited
@@ -708,11 +782,16 @@ const dock = (id, fn, { wakesAudio = true } = {}) => {
   });
   const up = () => el.classList.remove('is-down');
   el.addEventListener('pointerup', up);
-  el.addEventListener('pointercancel', up);
+  el.addEventListener('pointercancel', () => { viaPointer = false; up(); });
   el.addEventListener('blur', up);
   el.addEventListener('contextmenu', (e) => e.preventDefault());
-  // These are buttons; a click is what a keyboard and a screen reader send.
-  el.addEventListener('click', (e) => { if (e.detail === 0) fn(); });
+  // These are buttons, and a click is what a keyboard and a screen reader
+  // send. A click that follows this element's own pointerdown is that press
+  // arriving a second time, and is dropped.
+  el.addEventListener('click', () => {
+    if (viaPointer) { viaPointer = false; return; }
+    fn();
+  });
 };
 
 dock('dockVolUp', () => nudge(0.08));

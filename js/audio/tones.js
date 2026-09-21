@@ -96,6 +96,14 @@ export const TONES = {
     detune: 11,                // wider offset: the interference IS the effect
     // Locked to the sweep rather than restated, so the two cannot drift apart.
     gate: { rateHz: cpmToHz(1300), depth: 0.55 },
+    /**
+     * Priority is not another tone in the list, it is a channel over the
+     * top of whichever one is selected. On a real unit you hold it to cut
+     * through what is in front of you and the siren you had picked comes
+     * back on its own afterwards — the operator never has to re-select it,
+     * which is the entire point of a button you reach for in traffic.
+     */
+    override: true,
     icon: { cycles: 12, shape: 'tri',  amp: 0.90 },
     gain: 0.74,
   },

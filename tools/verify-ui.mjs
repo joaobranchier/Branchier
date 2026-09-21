@@ -623,6 +623,69 @@ console.log('\n--- a tone cannot outlive the finger ---');
   await stopAll();
 }
 
+console.log('\n--- PHSR is a priority channel, not another tone ---');
+{
+  const state = () => p.evaluate(() => ({
+    lcd: document.getElementById('lcdTone').innerText.trim(),
+    on: [...document.querySelectorAll('.key.is-on[data-tone]')].map((k) => k.dataset.tone),
+    armed: [...document.querySelectorAll('.key.is-armed[data-tone]')].map((k) => k.dataset.tone),
+    meter: parseFloat(document.getElementById('meterFill').style.width) || 0,
+  }));
+  const press = async (sel) => { await p.locator(sel).click(); await p.waitForTimeout(700); };
+
+  await p.locator('[data-act="stop"]').click();
+  await p.waitForTimeout(600);
+
+  await press('[data-tone="wail1"]');
+  ok('the wail is running', (await state()).lcd.startsWith('WAIL-1'));
+
+  await press('[data-tone="phaser"]');
+  let st = await state();
+  ok('PHSR takes over from it', st.lcd === 'PHSR' && st.on.join() === 'phaser',
+    `${st.lcd} / ligados: ${st.on.join() || 'nenhum'}`);
+  ok('and the wail waits, visibly', st.armed.join() === 'wail1',
+    `esperando: ${st.armed.join() || 'nenhum'}`);
+  ok('one voice at a time, not both', st.meter > 10, `medidor ${st.meter}%`);
+
+  await press('[data-tone="phaser"]');
+  st = await state();
+  ok('switching PHSR off brings the wail back by itself',
+    st.lcd.startsWith('WAIL-1') && st.on.join() === 'wail1',
+    `${st.lcd} / ligados: ${st.on.join() || 'nenhum'}`);
+  ok('and nothing is left waiting', st.armed.length === 0, st.armed.join());
+  ok('it is actually sounding again', st.meter > 10, `medidor ${st.meter}%`);
+
+  // Choosing a different tone while the override is up is a change of mind,
+  // and what it was holding must not come back later to surprise anyone.
+  await press('[data-tone="phaser"]');
+  await press('[data-tone="yelp"]');
+  st = await state();
+  ok('picking another tone drops what was waiting', st.armed.length === 0, st.armed.join());
+  await press('[data-tone="yelp"]');
+  st = await state();
+  ok('and switching that off leaves silence, not a ghost',
+    st.on.length === 0 && st.lcd === 'PRONTO', `${st.lcd} / ${st.on.join()}`);
+
+  // STOP is STOP.
+  await press('[data-tone="wail1"]');
+  await press('[data-tone="phaser"]');
+  await p.locator('[data-act="stop"]').click();
+  await p.waitForTimeout(700);
+  st = await state();
+  ok('STOP clears the waiting tone too',
+    st.on.length === 0 && st.armed.length === 0 && st.meter < 2,
+    `${st.on.join()} / ${st.armed.join()} / ${st.meter}%`);
+
+  // With nothing selected it is simply a tone, like any other key.
+  await press('[data-tone="phaser"]');
+  ok('on its own it latches like any other tone', (await state()).lcd === 'PHSR');
+  await press('[data-tone="phaser"]');
+  ok('and unlatches into silence', (await state()).lcd === 'PRONTO');
+
+  await p.locator('[data-act="stop"]').click();
+  await p.waitForTimeout(500);
+}
+
 console.log('\n--- the dock, and the key click ---');
 {
   const live = () => p.evaluate(() => window.__live);

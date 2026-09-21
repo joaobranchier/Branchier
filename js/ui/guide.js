@@ -91,7 +91,7 @@ const KEYS = [
     ['WAIL-1 / WAIL-2', 'Travam a varredura lenta. Toque de novo para desligar.'],
     ['YELP', 'Varredura rápida, para curta distância.'],
     ['HI-LO', 'Dois tons fixos alternando, padrão europeu.'],
-    ['PHSR', 'Varredura muito rápida com batimento. Curtíssima distância.'],
+    ['PHSR', 'Varredura muito rápida com batimento. Curtíssima distância. É o <b>canal de prioridade</b>: apertado por cima de outra sirene, ele assume e a sirene fica esperando, com a tecla dela apagada mas acesa por dentro. Desligue o PHSR e ela volta sozinha — você não precisa reescolher o tom no meio do trânsito.'],
     ['WA.WA', 'Varredura média com tremolo profundo.'],
     ['Q-SIREN', 'A eletromecânica. Sobe em 2–3 s e desce sozinha por ~30 s.'],
     ['AIR HORN', 'Momentâneo: só soa enquanto o dedo está em cima.'],

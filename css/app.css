@@ -312,6 +312,19 @@ body {
 }
 
 /* latched on — the key lights from behind, like a backlit panel */
+/* A tone the priority channel is holding for the operator: stopped, but
+   coming back the moment PHSR goes off again. Dim rather than lit, and
+   declared before .is-on so that a key which is somehow both reads as
+   running — "waiting" and "sounding" must never look alike at a glance. */
+.key.is-armed {
+  background: linear-gradient(180deg, #ece6d4 0%, #cfc2a0 55%, #ab976a 100%);
+}
+.key.is-armed::after {
+  opacity: .6;
+  background: var(--amber);
+  box-shadow: 0 0 .4em .05em var(--amber-glow);
+}
+
 .key.is-on {
   background: linear-gradient(180deg, #ffe9b8 0%, var(--amber) 55%, #d98a12 100%);
   box-shadow:

@@ -95,7 +95,8 @@ botão **Verificar**, para o caso de você querer a resposta agora.
 
 | Botão | O que faz |
 |---|---|
-| **WAIL-1 / WAIL-2 / YELP / HI-LO / PHSR / WA.WA** | Travam um tom. Toque de novo para desligar. |
+| **WAIL-1 / WAIL-2 / YELP / HI-LO / WA.WA** | Travam um tom. Toque de novo para desligar. |
+| **PHSR** | O canal de prioridade, e não mais um tom da fila. Apertado por cima de outra sirene ele assume; a sirene interrompida fica esperando, com a tecla em meia-luz. Desligue o PHSR e ela volta sozinha. É o botão que se aperta sem olhar, então obrigar a reescolher o tom depois anularia o motivo de ele existir. |
 | **AIR HORN** | Momentâneo — só soa enquanto o dedo está em cima. |
 | **MANUAL** | Momentâneo. Segure para subir o tom; solte e ele desce sozinho. |
 | **Q-SIREN** | A eletromecânica: sobe em ~2,6 s e desce em roda-livre por ~30 s. Trocar de tom corta a descida — quem manda é o botão que você acabou de apertar. |
@@ -271,7 +272,7 @@ navegador se acha no direito de reaproveitar a cópia. O CI estava certo.
 
 ```
 63/63 checks passed      (áudio)
-102/102 UI checks passed (navegador)
+114/114 UI checks passed (navegador)
 7/7 update checks passed (publicação)
 ```
 
