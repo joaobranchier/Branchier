@@ -61,7 +61,9 @@ function trace(spec) {
       lines: spec.bells.map((b) => b.hz),
       span, lo: Math.min(...spec.bells.map((b) => b.hz)) * 0.8,
       hi: Math.max(...spec.bells.map((b) => b.hz)) * 1.15,
-      caption: `acorde de ${spec.bells.length} trombetas, sem varredura`,
+      // One note plus its beat, not a chord — so the caption says what the
+      // lines actually are instead of counting them.
+      caption: 'nota única sustentada, sem varredura',
     };
   }
 

@@ -173,8 +173,12 @@ function pageHow() {
     <p class="gcard__body">As sirenes de varredura são uma onda quadrada varrida: os
        harmônicos são somados um a um e descartados ao passar do limite de Nyquist, o
        que é o motivo de a varredura nunca devolver nota errada. A buzina são
-       <b>duas</b> trombetas a uma terça menor — conjuntos duplos de fábrica são
-       assim, e um acorde maior soaria musical, tipo órgão, não caminhão. A Q-siren
+       uma <b>nota só</b>, grave e sustentada. Duas trombetas em terça menor é
+       caminhão — conjunto duplo de fábrica é afinado em intervalo e lê como
+       acorde. A buzina de uma viatura é um berro único, e o que sobra da
+       segunda voz aqui não é outra nota: é a mesma a dois hertz e meio de
+       distância, batendo devagar contra a primeira, que é o que impede uma
+       nota sustentada de soar como sinal de teste. A Q-siren
        segue a física do rotor: <code>f = (rpm ÷ 60) × portas</code>, com 14 portas,
        e o som irradiado é a <i>derivada</i> do fluxo, o que transforma a área aberta
        triangular numa onda quadrada assimétrica.</p>
@@ -193,8 +197,8 @@ function pageHow() {
       dentro de 360–630 Hz; Martin-Horn afinado em lá/ré (440/585 Hz).<br><br>
       Sirene classe Rumbler: 182–400 Hz, tocada junto com a sirene aguda, seguindo-a
       uma ou duas oitavas abaixo.<br><br>
-      Buzinas de acorde Nathan AirChime: fundamentais entre ~311 Hz (ré♯) e 415 Hz
-      (sol♯), com harmônicos acima de 5 kHz.<br><br>
+      Buzina eletrônica de viatura: uma nota grave sustentada, aqui em 233 Hz
+      (lá♯), saindo pela mesma corneta da sirene.<br><br>
       Federal Signal Q2B: rotor de 14 portas, 123 dB a 3 m, fundamental variável com
       a rotação (≈400–800 Hz em regime), embreagem de roda-livre.
     </p>

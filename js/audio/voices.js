@@ -69,8 +69,16 @@ export const VOICING = {
   siren:  { drive: 1.22, lowCut: 200, lowQ: 0.7, highCut: 3000, highQ: 0.6,
             tilt: [900, -7.5], trim: 1.8,
             bands: [[2800, 1.0, -6]] },
-  horn:   { drive: 1.15, lowCut: 130, highCut: 6800,
-            bands: [[480, 1.0, 3], [1400, 1.3, 2]] },
+  /**
+   * The horn's radiator came down with its bells. A 130 Hz high-pass sat on
+   * the skirt of a 233 Hz fundamental and thinned out the one note the whole
+   * sound is, and the flat top let through a harmonic stack that belongs to
+   * a trumpet in free air rather than to a compression driver on a patrol
+   * car — which is what is actually playing this.
+   */
+  horn:   { drive: 1.3,  lowCut: 78,  lowQ: 0.7, highCut: 5600, highQ: 0.7,
+            tilt: [520, -3], trim: 1.2,
+            bands: [[1500, 1.0, 2]] },
   mech:   { drive: 1.3,  lowCut: 190, highCut: 8200,
             bands: [[900, 0.9, 3], [2000, 1.4, 2]] },
   rumble: { drive: 1.1,  lowCut: 70,  highCut: 1200,

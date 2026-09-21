@@ -60,10 +60,10 @@ varredura são as de verdade.
 | **PHSR** | PA300 Priority · 725–1800 Hz · 1300 cpm + batimento |
 | **HI-LO** | DIN 14610 / Martin-Horn · 440 ↔ 585 Hz (lá/ré) · 70 cpm |
 | **WA.WA** | 725–1800 Hz · 132 cpm com AM sincronizada |
-| **AIR HORN** | Nathan AirChime · acorde a partir de 311 Hz (ré♯) |
+| **AIR HORN** | Buzina eletrônica de viatura · 233 Hz (lá♯) sustentado |
 | **Q-SIREN** | Federal Signal Q2B · rotor de 14 portas · 400–800 Hz |
 | **RUMBLER** | Classe Rumbler · 182–400 Hz, acompanhando a sirene ativa |
-| **MANUAL** | Wail manual · 600–1750 Hz, controlado pelo dedo |
+| **MANUAL** | Wail manual · 440–1280 Hz, controlado pelo dedo |
 
 `cpm` = ciclos por minuto, a unidade que os fabricantes usam.
 
@@ -154,10 +154,13 @@ própria do caminho de sinal, escrita só para gerar os arquivos. Cópia é
 promessa, não prova: os `.wav` soavam ótimos e o app soava errado, e ninguém
 tinha como ver a diferença. O que a medição encontrou está logo abaixo.
 
-**A buzina** são duas trombetas a uma terça menor. O ciclo ativo da palheta
-estreita conforme a pressão sobe, então o tom *abre* durante o ataque em vez
-de só ficar mais alto; e a turbulência é aberta e fechada pela própria
-palheta.
+**A buzina** é uma nota só, grave e sustentada — o berro de viatura, não o
+acorde de duas trombetas de um caminhão. O que sobra da segunda voz é a mesma
+nota a dois hertz e meio de distância, batendo devagar, que é o que impede
+uma nota sustentada de soar como sinal de teste. O ciclo ativo da palheta
+estreita conforme a pressão sobe, e a turbulência é aberta e fechada pela
+própria palheta: é isso que dá o gume, sem o qual uma nota grave sustentada
+vira buzina de navio.
 
 **A Q-siren** tem 14 portas no rotor e 14 no estator, da mesma largura, então
 a área aberta é um triângulo. Mas o som radiado não é esse triângulo: pressão
@@ -271,7 +274,7 @@ e reprovava no CI — onde os tempos calharam de cair dentro da janela em que o
 navegador se acha no direito de reaproveitar a cópia. O CI estava certo.
 
 ```
-67/67 checks passed      (áudio)
+68/68 checks passed      (áudio)
 117/117 UI checks passed (navegador)
 7/7 update checks passed (publicação)
 ```
@@ -299,7 +302,11 @@ nem para obrigar alguém a sair da frente.
 - DIN 14610 (Martinshorn) — dois tons fixos a uma quarta justa, razão 1:1,33,
   dentro de 360–630 Hz; Martin-Horn afinado em lá/ré (440/585 Hz).
 - Sirene classe Rumbler — 182–400 Hz, tocada em conjunto com a sirene aguda.
-- Buzinas de acorde Nathan AirChime — fundamentais entre ~311 Hz (ré♯) e
-  415 Hz (sol♯); harmônicos acima de 5 kHz.
+- Buzina eletrônica de viatura — uma nota grave sustentada, aqui em 233 Hz
+  (lá♯). **Esta é a única linha desta lista que não vem de uma
+  especificação publicada**: veio da descrição de quem usa o app, depois de
+  ouvir a versão anterior. Ela era um acorde de duas trombetas Nathan
+  AirChime a uma terça menor, que é uma buzina de caminhão de verdade e
+  estava certa a respeito de um caminhão. Não é o que uma viatura faz.
 - Federal Signal Q2B — rotor de 14 portas, 123 dB a 3 m, fundamental variável
   com a rotação (≈400–800 Hz em regime), embreagem de roda-livre.

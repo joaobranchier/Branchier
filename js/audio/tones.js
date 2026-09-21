@@ -146,24 +146,36 @@ export const TONES = {
     id: 'airhorn',
     label: 'AIR HORN',
     caption: 'Air horn',
-    blurb: 'Buzina de ar de caminhão. Três trombetas afinadas em acorde, levemente desafinadas entre si para bater, com jato de ar no ataque e queda de pressão ao soltar.',
-    spec: 'Par de trombetas · 311 / 370 Hz · terça menor',
+    blurb: 'A buzina de ar da viatura: uma nota só, grave e sustentada — o berro que faz o carro da frente sair. Não é o acorde de duas trombetas de um caminhão; é um canal eletrônico imitando uma palheta, saindo pela mesma corneta da sirene.',
+    spec: 'Buzina eletrônica de viatura · 233 Hz sustentado',
     kind: 'horn',
-    // Two trumpets, a minor third apart. OEM dual sets are tuned to a third
-    // — a documented pair is 415 Hz with 494 Hz — and a truck horn sits at
-    // 250-350 Hz, so the interval is taken down into that range. The earlier
-    // three-bell major triad was the mistake: a major chord reads as musical,
-    // and a truck horn is anything but.
+    /**
+     * One note, not a chord.
+     *
+     * This was two trumpets a minor third apart, which is a truck: a lorry's
+     * dual set is tuned to an interval and reads as a chord. A patrol car's
+     * air horn is a single sustained blast — one note, held flat. The second
+     * entry here is not a second trumpet, it is the same note two and a half
+     * hertz away, which beats slowly against the first and is what keeps a
+     * single sustained tone from sounding like a test signal.
+     */
     bells: [
-      { hz: 311.13, gain: 1.00, detune: 0.7 },   // D#4 — the big trumpet
-      { hz: 369.99, gain: 0.86, detune: -1.4 },  // F#4 — a minor third above
+      { hz: 233.08, gain: 1.00, detune: 0 },   // A#3 — the note itself
+      { hz: 235.58, gain: 0.55, detune: 0 },   // its own beat, ~2.5 Hz
     ],
     wave: 'horn',
-    attackMs: 18,
-    releaseMs: 180,
-    scoopSemis: 0.5,           // pitch rises into tune as air pressure builds
-    droopSemis: 0.9,           // and falls away as it bleeds out
-    airNoise: 0.22,
+    attackMs: 24,
+    releaseMs: 150,
+    // Nearly nothing: a horn that bends into tune is a horn being blown by
+    // air pressure. This one is switched on.
+    scoopSemis: 0.05,
+    droopSemis: 0.7,
+    airNoise: 0.14,
+    // Steady, but not smooth. The rasp and the duty narrowing are what give
+    // the blast its edge; without them a deep sustained note is a foghorn.
+    rasp: 0.002,
+    bite: 0.16,
+    topHz: 7000,
     gain: 0.95,
   },
 
@@ -206,9 +218,12 @@ export const TONES = {
     label: 'MANUAL',
     caption: 'Wail manual',
     blurb: 'Você é o operador. Segure para subir o tom, solte para deixar cair. É assim que se "toca" uma sirene de verdade em cima da hora.',
-    spec: 'Whelen-style manual wail · 600–1750 Hz',
+    spec: 'Wail manual · 440–1280 Hz',
     kind: 'manual',
-    lo: 600, hi: 1750,
+    // Taken down a fourth. The range is the same in octaves — the gesture is
+    // identical — but it sits where a hand-played siren actually growls
+    // rather than up where it whistles.
+    lo: 440, hi: 1280,
     // An operator playing a siren by hand works it quickly — the whole point
     // of the manual channel is that the pitch answers the thumb. The first
     // figures came from a full-travel sweep and read as sluggish: the rise
@@ -217,7 +232,10 @@ export const TONES = {
     fallS: 2.1,
     wave: 'siren',
     detune: 6,
-    gain: 0.84,
+    // Lower than it was: the radiator's tilt takes its toll above 900 Hz,
+    // and dropping the range a fourth put most of this tone underneath it.
+    // Same loudness out, headroom kept for the limiter.
+    gain: 0.62,
   },
 };
 

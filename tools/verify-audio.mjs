@@ -213,15 +213,29 @@ group('Hi-Lo holds two fixed pitches a musical fourth apart (DIN 14610)');
     high / low > 1.25 && high / low < 1.42, `ratio ${(high / low).toFixed(3)}`);
 }
 
-group('Air horn is two trumpets a minor third apart');
+group('Air horn is one sustained note, the way a patrol car blows it');
 {
   const T = TONES.airhorn;
   const r = renderHorn(T, SR);
-  assert('two bells, not a triad', T.bells.length === 2, `${T.bells.length} bells`);
-  const cents = 1200 * Math.log2(T.bells[1].hz / T.bells[0].hz);
-  check('interval', cents, 300, 4, ' cents');
-  assert('fundamental inside the 250-350 Hz truck-horn range',
-    T.bells[0].hz >= 250 && T.bells[0].hz <= 350, `${T.bells[0].hz.toFixed(0)} Hz`);
+
+  // This used to check the opposite, and the check was right about the thing
+  // it was describing: two trumpets a minor third apart is a lorry's dual
+  // set, and that is what the horn was. A patrol car's air horn is one note
+  // held flat. What is left of the second entry is a beat, not an interval —
+  // near enough in pitch to thicken the note rather than harmonise with it.
+  assert('no chord: the second entry is a beat, not an interval',
+    Math.abs(1200 * Math.log2(T.bells[1].hz / T.bells[0].hz)) < 30,
+    `${(1200 * Math.log2(T.bells[1].hz / T.bells[0].hz)).toFixed(0)} cents`);
+  const beat = Math.abs(T.bells[1].hz - T.bells[0].hz);
+  assert('and it beats slowly enough to be heard as one note',
+    beat > 0.5 && beat < 6, `${beat.toFixed(1)} Hz`);
+  assert('deep, in the range a patrol horn blows',
+    T.bells[0].hz >= 180 && T.bells[0].hz <= 280, `${T.bells[0].hz.toFixed(0)} Hz`);
+
+  // Constant. A horn that bends into tune is one being blown by rising air
+  // pressure; this one is switched on, and the pitch is flat from the start.
+  assert('it does not bend into tune', (T.scoopSemis ?? 0.5) <= 0.15,
+    `${T.scoopSemis} semitons`);
 
   const found = partials(r.data, Math.round(SR * 0.3), 8192, 10, -12).map(([f]) => f);
   for (const bell of T.bells) {

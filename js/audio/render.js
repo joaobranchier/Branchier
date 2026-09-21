@@ -158,7 +158,9 @@ function applyGate(buf, gate, sr, loopLen) {
  *    modulated by the pulse itself rather than sitting underneath it.
  */
 export function renderHorn(spec, sr) {
-  const attackS = 0.06;            // the valve opens fast; a horn is a stab
+  // The spec has declared an attack all along and this used a fixed sixty
+  // milliseconds regardless, so the number in the tone table was decoration.
+  const attackS = (spec.attackMs ?? 60) / 1000;
   const loopS = 0.5;
   const releaseS = (spec.releaseMs ?? 180) / 1000 + 0.12;
 
@@ -191,12 +193,13 @@ export function renderHorn(spec, sr) {
         const f = bell.hz * (scoop + (1 - scoop) * p) * (1 + pitchDrift());
         // The reed shuts harder the more pressure is behind it, so the open
         // fraction narrows and the tone brightens through the attack rather
-        // than merely getting louder.
-        const duty = 0.5 - 0.16 * p;
+        // than merely getting louder. A horn asked to be steady rather than
+        // to bark does less of this.
+        const duty = 0.5 - (spec.bite ?? 0.16) * p;
         const amps = dutyHarmonics(duty);
 
         // The reed is never quite periodic, and that is the rasp.
-        ph += (TAU * f / sr) * (1 + jitter() * 0.003);
+        ph += (TAU * f / sr) * (1 + jitter() * (spec.rasp ?? 0.003));
         if (ph > TAU) ph -= TAU;
 
         const tone = harmonicSum(ph, amps, f, nyq);
@@ -214,15 +217,18 @@ export function renderHorn(spec, sr) {
     run(rel, true);
   });
 
-  // The trumpet's flare: fixed resonances that colour both bells the same
-  // way. The fundamental is left alone — the previous version band-passed
-  // around 900 Hz and thinned out the very note the horn is tuned to.
+  // The flare's own resonances, placed relative to the note the horn is
+  // tuned to rather than at fixed frequencies. A horn that plays lower is a
+  // bigger horn, and a bigger horn's resonances are lower too — pinning them
+  // in hertz meant that retuning the bells left the body behind, with the
+  // high-pass climbing onto the fundamental of anything deep.
+  const f0 = Math.min(...spec.bells.map((b) => b.hz));
   const voice = (b) => chain(b,
-    highpass(sr, 150, 0.7),
-    peaking(sr, 560, 1.1, 4),
-    peaking(sr, 1150, 1.4, 3),
-    peaking(sr, 2300, 1.8, 2.5),
-    lowpass(sr, 6800, 0.7));
+    highpass(sr, f0 * 0.48, 0.7),
+    peaking(sr, f0 * 1.8, 1.1, 3.5),
+    peaking(sr, f0 * 3.7, 1.4, 2.8),
+    peaking(sr, f0 * 7.4, 1.8, 2.2),
+    lowpass(sr, spec.topHz ?? 6800, 0.7));
   voice(body);
   voice(rel);
 
