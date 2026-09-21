@@ -133,6 +133,19 @@ export function triangleHarmonics(r, count, samples = 2048) {
   return amps;
 }
 
+/**
+ * A sawtooth's series: every harmonic, odd and even, falling as 1/k.
+ *
+ * A square has odd harmonics only, which is what makes it hollow — clarinet
+ * rather than brass. An electronic horn blares, and blare is the even
+ * harmonics being there too.
+ */
+export function sawHarmonics(count) {
+  const amps = new Float64Array(count + 1);
+  for (let k = 1; k <= count; k++) amps[k] = 1 / k;
+  return amps;
+}
+
 /** Square wave: odd harmonics at 1/k. */
 export function squareHarmonics(count) {
   const amps = new Float64Array(count + 1);

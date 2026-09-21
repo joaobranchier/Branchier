@@ -15,7 +15,8 @@
 
 import { driverClip } from './dsp.js';
 import {
-  renderSiren, renderHorn, renderMechSteady, renderSteady, renderRumble,
+  renderSiren, renderHorn, renderElectricHorn, renderMechSteady, renderSteady,
+  renderRumble,
 } from './render.js';
 
 /* ------------------------------------------------------------------ *
@@ -71,6 +72,15 @@ export const VOICING = {
             bands: [[2800, 1.0, -6]] },
   horn:   { drive: 1.15, lowCut: 130, highCut: 6800,
             bands: [[480, 1.0, 3], [1400, 1.3, 2]] },
+  /**
+   * The patrol car's horn, which is a tone generator going out through the
+   * siren's own compression driver — so the low cut is the driver's, and the
+   * shaping is a vowel rather than a trumpet's body. The peak near 500 Hz is
+   * the O; the scoop above it is what stops the O turning into an E.
+   */
+  ehorn:  { drive: 1.45, lowCut: 190, lowQ: 0.7, highCut: 4200, highQ: 0.7,
+            trim: 0.57,
+            bands: [[520, 1.1, 6], [1250, 1.2, -5], [2700, 1.0, 2]] },
   mech:   { drive: 1.3,  lowCut: 190, highCut: 8200,
             bands: [[900, 0.9, 3], [2000, 1.4, 2]] },
   rumble: { drive: 1.1,  lowCut: 70,  highCut: 1200,
@@ -128,6 +138,7 @@ export function getBuffers(engine, spec, opts = {}) {
       rendered = renderSiren({ ...spec, rateHz: spec.rateHz * (opts.rate ?? 1) }, sr);
       break;
     case 'horn':       rendered = renderHorn(spec, sr); break;
+    case 'ehorn':      rendered = renderElectricHorn(spec, sr); break;
     case 'mechanical': rendered = renderMechSteady(spec, sr); break;
     case 'manual':     rendered = renderSteady(spec.lo, sr); break;
     case 'rumble':     rendered = renderRumble(spec, opts.source, sr); break;
@@ -374,7 +385,7 @@ class SweepVoice extends Voice {
 
 class HornVoice extends Voice {
   constructor(engine, spec, opts) {
-    super(engine, spec, 'horn', opts);
+    super(engine, spec, spec.kind === 'ehorn' ? 'ehorn' : 'horn', opts);
     this.buffers = getBuffers(engine, spec);
     this.src = this._source(this.buffers);
   }
@@ -410,7 +421,7 @@ class HornVoice extends Voice {
     return this.buffers.release ? this.buffers.release.duration : super.tailS;
   }
 
-  frequency() { return this.spec.bells[0].hz; }
+  frequency() { return this.spec.hz ?? this.spec.bells?.[0]?.hz ?? 0; }
 }
 
 /* ------------------------------------------------------------------ *
@@ -633,7 +644,8 @@ export function createVoice(engine, spec, context = {}) {
   switch (spec.kind) {
     case 'sweep':
     case 'twotone':    return new SweepVoice(engine, spec, opts);
-    case 'horn':       return new HornVoice(engine, spec, opts);
+    case 'horn':
+    case 'ehorn':      return new HornVoice(engine, spec, opts);
     case 'mechanical': return new MechVoice(engine, spec, opts);
     case 'manual':     return new ManualVoice(engine, spec, opts);
     case 'rumble':     return new RumbleVoice(engine, spec, context.source,
