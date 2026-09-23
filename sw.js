@@ -22,7 +22,7 @@
  * correção publicada agora está no telefone na próxima abertura, sempre.
  */
 
-const BUILD = 'v23';                 // precisa casar com js/build.js
+const BUILD = 'v24';                 // precisa casar com js/build.js
 const VERSION = `sireflex-${BUILD}`;
 
 const SHELL = [

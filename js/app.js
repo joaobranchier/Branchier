@@ -8,12 +8,17 @@ import { TONES, AUTO_CYCLE, MOD_STEPS } from './audio/tones.js';
 import { Strobe } from './ui/strobe.js';
 import { injectWaveIcons } from './ui/waveicons.js';
 import { initSheets, openWelcome, isOpen as sheetOpen, close as closeSheet } from './ui/sheets.js';
-import { initGuide, openGuide, closeGuide, guideOpen, tabBarHTML } from './ui/guide.js';
+import {
+  initGuide, openGuide, closeGuide, guideOpen, tabBarHTML, SHORTCUTS, keyboardFirst,
+} from './ui/guide.js';
 import { ScreenLock, Haptics, loadPrefs, savePrefs, isIOS, isStandalone } from './platform.js';
 
 const DEFAULTS = {
   volume: 0.8,
-  pattern: 'alt',
+  // Someone who has asked their device for less motion starts on the gentlest
+  // lightbar pattern. It is only the starting point; Settings still has all
+  // of them.
+  pattern: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'slow' : 'alt',
   brightness: 1,
   wakeLock: true,
   haptics: true,
@@ -58,6 +63,12 @@ class Controller {
     /** Tone being auditioned from the guide, separate from the faceplate. */
     this.previewVoice = null;
     this.previewId = null;
+    /**
+     * Told whenever an audition starts or ends, so the guide's button can
+     * follow. The air horn's ends by itself, and its button used to go on
+     * reading "Parar" over silence.
+     */
+    this.onPreviewChange = null;
     this.standby = true;
 
     this.engine.setVolume(this.prefs.volume);
@@ -118,7 +129,18 @@ class Controller {
     } else if (this.engine.ctx.state !== 'running') {
       await this.engine.ctx.resume().catch(() => {});
     }
+    this.wake();
+  }
+
+  /**
+   * Out of standby, all of it. A key pressed on a unit that had been powered
+   * down wakes it, and that used to clear the flag and light the dock's power
+   * key while leaving the faceplate itself dimmed — a siren sounding from a
+   * panel that still looked switched off.
+   */
+  wake() {
     this.standby = false;
+    document.getElementById('remote').classList.remove('is-standby');
     this.syncDock();
   }
 
@@ -233,28 +255,56 @@ class Controller {
     this.suspended = [];
   }
 
-  /** Keeps the low-frequency layer following whatever is currently playing. */
+  /**
+   * Keeps the low-frequency layer following whatever is currently playing.
+   *
+   * Two ways of following. Under a swept siren the layer is its own sweep,
+   * rendered two octaves down at the same rate. Under a tone whose pitch is
+   * played rather than swept — MANUAL under the thumb, the Q winding up and
+   * coasting — there is nothing to render in advance, so the layer is given
+   * that voice's own pitch automation instead (Voice.lead) and moves with it
+   * exactly, fall and coast included. It used to sweep on its own at the
+   * wail's rate under both, and cut out the instant MANUAL was let go while
+   * the note itself was still falling.
+   *
+   * The air horn is not a siren, and has nothing for the layer to follow.
+   */
   syncRumble() {
-    const want = this.rumble && (this.active.size > 0 || this.held.size > 0);
+    const want = this.rumble && (this.active.size > 0 || this.held.has('manual'));
     const id = this.primaryId;
     const source = id ? TONES[id] : TONES.wail1;
     const rate = MOD_STEPS[this.modStep].factor;
-    // The sweep rate is part of what the layer has to match, not just the
-    // tone: MOD used to change one and not the other.
-    const key = `${source.id}:${rate}`;
+    const leader = !want ? null
+      : id === 'manual' ? this.held.get('manual')
+      : id === 'mech' ? this.active.get('mech')
+      : null;
+    // A played tone is followed voice by voice, so a new press is a new
+    // layer; a swept one is followed by tone and by sweep rate, since MOD
+    // changes the rate and the layer has to match it.
+    const key = leader ? `${source.id}#${leader.uid}` : `${source.id}:${rate}`;
 
-    if (!want) {
-      this._retire(this.rumbleVoice);
-      this.rumbleVoice = null;
-      this._rumbleSource = null;
-      return;
-    }
+    if (!want) { this._dropRumble(); return; }
     if (this.rumbleVoice && this._rumbleSource === key) return;
-    // The source changed, so rebuild it to track the new tone.
-    this._retire(this.rumbleVoice);
+    this._dropRumble();
     this._rumbleSource = key;
-    this.rumbleVoice = createVoice(this.engine, TONES.rumbler, { source, rate });
+    this.rumbleVoice = createVoice(this.engine, TONES.rumbler,
+      leader ? { followHz: leader.baseHz } : { source, rate });
+    leader?.lead(this.rumbleVoice);
     this.rumbleVoice.start();
+  }
+
+  /**
+   * Lets go of the layer. One that is already falling with the voice it
+   * follows is left to finish that fall — it is tracked, so STOP still
+   * reaches it — rather than being cut short on its own.
+   */
+  _dropRumble() {
+    const v = this.rumbleVoice;
+    this.rumbleVoice = null;
+    this._rumbleSource = null;
+    if (!v) return;
+    if (v.leader && v.stopped) this._fade(v, v.spec, true);
+    else this._retire(v);
   }
 
   /**
@@ -383,6 +433,7 @@ class Controller {
     voice.start();
     this.previewVoice = voice;
     this.previewId = id;
+    this.onPreviewChange?.();
     // Fade the faceplate out underneath: two sirens at once, with a display
     // that can only name one, is just noise.
     this.engine.duckPanel(true);
@@ -416,6 +467,7 @@ class Controller {
     // the faceplate uses — STOP has to be able to reach them too.
     else this._fade(voice, spec);
     this.syncScreenLock();
+    this.onPreviewChange?.();
   }
 
   /* ------------------------------ modes ------------------------------ */
@@ -450,6 +502,17 @@ class Controller {
     this.stopAllTones();
     this.autoIndex = 0;
     this.startTone(AUTO_CYCLE[0]);
+    this.rearmAuto();
+  }
+
+  /**
+   * (Re)starts AUTO's clock from the interval in Settings. Called again when
+   * that setting changes, so a scan already running follows it instead of
+   * keeping the old interval until it is switched off and on.
+   */
+  rearmAuto() {
+    clearInterval(this.autoTimer);
+    if (!this.auto) return;
     this.autoTimer = setInterval(() => {
       this.autoIndex = (this.autoIndex + 1) % AUTO_CYCLE.length;
       this.stopAllTones();
@@ -504,9 +567,11 @@ class Controller {
     this.cancelAuto();
     this.clearSuspended();
     clearTimeout(this._previewTimer);
+    const auditioning = !!this.previewVoice;
     this.previewVoice?.kill();
     this.previewVoice = null;
     this.previewId = null;
+    if (auditioning) this.onPreviewChange?.();
     for (const [id, voice] of this.active) { voice.kill(); this.setKey(`[data-tone="${id}"]`, false); }
     this.active.clear();
     for (const voice of this.held.values()) voice.kill();
@@ -525,10 +590,8 @@ class Controller {
   /** The power key: standby on the way down, wake on the way back. */
   togglePower() {
     if (this.standby) {
-      this.standby = false;
-      this.syncDock();
-      document.getElementById('remote').classList.remove('is-standby');
-      this.ensureAudio().catch(() => {});
+      this.wake();
+      this.ensureAudio().catch(() => this.audioUnavailable());
       return;
     }
     this.panic();
@@ -592,27 +655,37 @@ class Controller {
     const id = this.primaryId;
     const voice = this.primaryVoice;
 
+    let label;
     if (id) {
       const extra = this.active.size > 1 ? ` +${this.active.size - 1}` : '';
-      tone.textContent = TONES[id].label + extra;
+      label = TONES[id].label + extra;
     } else {
-      tone.textContent = this.standby ? 'STANDBY' : 'PRONTO';
+      label = this.standby ? 'STANDBY' : 'PRONTO';
     }
 
     // A volume nudge writes here too, and used to be overwritten by the very
     // next frame — so the readout never actually appeared.
+    let readout;
     if (this._flashUntil && performance.now() < this._flashUntil) {
-      hz.textContent = this._flashText;
+      readout = this._flashText;
     } else {
       this._flashUntil = 0;
       const f = voice?.frequency();
-      hz.textContent = Number.isFinite(f) && f > 0 ? `${Math.round(f)} Hz` : '';
+      readout = Number.isFinite(f) && f > 0 ? `${Math.round(f)} Hz` : '';
     }
 
     // Read the bus itself rather than inferring from what is latched: a tone
     // released into a long tail (the Q-siren coasts for nineteen seconds) is
     // still very much audible, and a meter that reads zero there is lying.
-    meter.style.width = `${Math.round(this.engine.level() * 100)}%`;
+    const width = `${Math.round(this.engine.level() * 100)}%`;
+
+    // Sixty times a second, so only what actually changed is written: every
+    // write is a style and layout pass, and on a phone that is battery spent
+    // redrawing a display that looks exactly the same.
+    const shown = this._shown ||= {};
+    if (shown.label !== label) tone.textContent = shown.label = label;
+    if (shown.readout !== readout) hz.textContent = shown.readout = readout;
+    if (shown.width !== width) meter.style.width = shown.width = width;
     requestAnimationFrame(() => this.render());
   }
 }
@@ -666,6 +739,9 @@ const LATCHING = new Set(['tone', 'eq', 'auto', 'mix', 'rumble', 'lmb', 'light']
  */
 const releasers = [];        // release regardless of pointer
 const pointerReleasers = []; // release only if this is that key's pointer
+
+/** Each key's own press and release, so a keyboard shortcut can use them. */
+const pressers = new Map();
 
 function releaseAllHeld() {
   for (const fn of releasers) fn();
@@ -734,6 +810,8 @@ function wire(el) {
       if (pointer === null || e.pointerId === pointer) onUp();
     });
   }
+
+  pressers.set(el, { down: onDown, up: onUp });
 
   el.addEventListener('pointerdown', onDown);
   el.addEventListener('pointerup', onUp);
@@ -874,17 +952,74 @@ document.addEventListener('visibilitychange', () => {
   releaseAllHeld();
 });
 
+/* ------------------------- keyboard shortcuts ------------------------- */
+
+// On a computer the panel is played from the keyboard. Each shortcut goes
+// through the key's own press and release, so it looks, clicks and behaves
+// exactly like a finger on that key — MANUAL and AIR HORN sound for as long
+// as the key is held. The table lives in guide.js, which lists it.
+const SHORTCUT = new Map(SHORTCUTS.map(([k, sel]) => [k, sel]));
+
+/** Keys the keyboard is holding down right now, and how to let each go. */
+const keyHeld = new Map();
+
+const typingIn = (t) => !!t?.closest?.('input, select, textarea, [contenteditable="true"]');
+const FAKE_POINTER = { preventDefault() {}, pointerId: undefined };
+
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     ctl.strobe.stop();
     if (guideOpen()) closeGuide();
     if (sheetOpen()) closeSheet();
+    return;
   }
-  // Space is panic only when no key has focus — otherwise it belongs to the
-  // focused button, which handles it itself.
-  const onKey = document.activeElement?.closest?.('.key');
-  if (e.key === ' ' && !onKey) { e.preventDefault(); ctl.panic(); }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  // The guide and the welcome sheet have controls of their own, and Space on
+  // one of them is that control's — it used to fire STOP as well.
+  if (guideOpen() || sheetOpen() || typingIn(e.target)) return;
+  // A focused button owns Space and Enter, and handles them itself.
+  if ((e.key === ' ' || e.key === 'Enter') && e.target?.closest?.('button')) return;
+
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === '+' || e.key === '=' || e.key === '-') {
+    e.preventDefault();
+    nudge(e.key === 'ArrowUp' || e.key === '+' || e.key === '=' ? 0.08 : -0.08);
+    ctl.clack('down');
+    return;
+  }
+
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  const el = SHORTCUT.has(k) && document.querySelector(SHORTCUT.get(k));
+  const h = el && pressers.get(el);
+  if (!h) return;
+  e.preventDefault();
+  if (e.repeat || keyHeld.has(k)) return;
+  keyHeld.set(k, h.up);
+  h.down(FAKE_POINTER);
 });
+
+window.addEventListener('keyup', (e) => {
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  const up = keyHeld.get(k);
+  if (!up) return;
+  keyHeld.delete(k);
+  up();
+});
+
+// Switching away mid-press never delivers the keyup, and a key the keyboard
+// is "still holding" would keep its note sounding.
+addEventListener('blur', () => {
+  for (const up of keyHeld.values()) up();
+  keyHeld.clear();
+});
+
+/** Tooltips naming each key's shortcut, where there is a keyboard to use. */
+if (keyboardFirst()) {
+  for (const [k, sel] of SHORTCUTS) {
+    const el = document.querySelector(sel);
+    const name = el?.querySelector('.key__lbl')?.textContent.trim();
+    if (el && name) el.title = `${name} — tecla ${k === ' ' ? 'Espaço' : k.toUpperCase()}`;
+  }
+}
 
 /* Stop iOS from bouncing or zooming the faceplate. Dragging off a key must
    not scroll the page — but when the layout genuinely does not fit (a phone
@@ -923,7 +1058,7 @@ ctl.engine.onStateChange((state) => {
   if (state === 'suspended' || state === 'interrupted') {
     hint.style.opacity = '1';
     hint.dataset.state = '';
-    hint.textContent = 'Áudio pausado pelo sistema — toque para retomar';
+    hint.textContent = 'Áudio pausado pelo sistema — aperte qualquer botão para retomar';
   } else if (state === 'running') {
     hint.style.opacity = '0';
   }
@@ -965,6 +1100,8 @@ if ('serviceWorker' in navigator) {
     if (!bar || !bar.hidden) return;
     bar.hidden = false;
     bar.addEventListener('pointerdown', applyUpdate, { once: true });
+    // A keyboard, or a screen reader, activates with a click.
+    bar.addEventListener('click', applyUpdate, { once: true });
   };
 
   sw.addEventListener('controllerchange', () => {

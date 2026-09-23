@@ -292,6 +292,44 @@ for (const id of SWEEPS) {
   assert('Q-SIREN wrap', seamRatio(m.data, 0) <= 1.2, `${seamRatio(m.data, 0).toFixed(2)}x`);
 }
 
+group('A sweep buffer knows its own cycle');
+for (const id of SWEEPS) {
+  // MOD hands over between buffers at the same point of the sweep, and it
+  // finds that point from this number. A loop that is not a whole number of
+  // cycles would put the handover in the wrong place.
+  const r = rendered[id];
+  const whole = r.cycle > 0 && Math.abs(r.data.length / r.cycle - Math.round(r.data.length / r.cycle)) < 0.01;
+  assert(`${TONES[id].label} loop is whole cycles`, whole,
+    `${(r.data.length / r.cycle).toFixed(3)} cycles of ${r.cycle} samples`);
+}
+
+group('MANUAL does not alias anywhere in its travel');
+{
+  // The manual channel is one steady buffer played faster, up to hi/lo times
+  // its own pitch. Every harmonic in it goes up by that factor too, and one
+  // pushed past Nyquist folds back down as a whistle that falls while the
+  // siren rises. So the buffer must not contain any harmonic that would get
+  // there — measured, not taken on trust from the renderer's arithmetic.
+  const T = TONES.manual;
+  for (const sr of [44100, 48000]) {
+    const r = renderSteady(T.lo, sr, T.hi);
+    const n = 1 << Math.floor(Math.log2(r.data.length));
+    const reps = new Float32Array(n * 2);
+    for (let i = 0; i < reps.length; i++) reps[i] = r.data[i % r.data.length];
+    // magnitudes() assumes the suite's own rate for its bins.
+    const mag = magnitudes(reps, 0, n);
+    let top = 0;
+    for (const m of mag) top = Math.max(top, m);
+    let highest = 0;
+    for (let i = 2; i < mag.length; i++) if (20 * Math.log10(mag[i] / top + 1e-12) > -80) highest = (i * sr) / n;
+    const atTop = highest * (T.hi / T.lo);
+    assert(`at ${sr / 1000} kHz, top harmonic stays under Nyquist`, atTop < sr / 2,
+      `${highest.toFixed(0)} Hz x ${(T.hi / T.lo).toFixed(2)} = ${atTop.toFixed(0)} Hz (Nyquist ${sr / 2})`);
+  }
+  const d = renderSteady(T.lo, SR, T.hi).data;
+  assert('and still loops on itself', seamRatio(d, 0) <= 1.2, `${seamRatio(d, 0).toFixed(2)}x`);
+}
+
 group('Nothing renders out of range or out of bounds');
 {
   const all = [
@@ -299,7 +337,7 @@ group('Nothing renders out of range or out of bounds');
     ['AIR HORN', renderHorn(TONES.airhorn, SR)],
     ['Q-SIREN', renderMechSteady(TONES.mech, SR)],
     ['RUMBLE', renderRumble(TONES.rumbler, TONES.wail1, SR)],
-    ['MANUAL', renderSteady(TONES.manual.lo, SR)],
+    ['MANUAL', renderSteady(TONES.manual.lo, SR, TONES.manual.hi)],
     ['street IR', { data: renderStreetIR(SR) }],
   ];
   for (const [name, r] of all) {

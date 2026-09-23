@@ -7,7 +7,7 @@
 <!-- viewport-fit=cover lets the faceplate run under the notch and home bar;
      user-scalable=no stops a double-tap on a button from zooming the page. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="description" content="SireFlex — controlador de sirene e air horn sintetizado em tempo real, com tons calibrados pelas especificações reais de fabricante. Roda no iPhone sem App Store.">
+<meta name="description" content="SireFlex — um controlador de sirene e buzina leve e completo. Roda em qualquer dispositivo!">
 <meta name="author" content="Branchier Law Tech">
 <meta name="theme-color" content="#101214">
 <meta name="color-scheme" content="dark">
@@ -158,7 +158,7 @@
     </div>
   </div>
 
-  <p class="hint" id="hint">Toque em qualquer botão para ligar o áudio</p>
+  <p class="hint" id="hint">Aperte qualquer botão para ligar o áudio</p>
 
   <!-- The way in to everything that is not a siren.
        The original unit has these moulded into the case edges, and so did
@@ -196,13 +196,13 @@
 </button>
 
 <!-- ============================ guide ============================ -->
-<div class="guide" id="guide" hidden>
+<div class="guide" id="guide" role="dialog" aria-modal="true" aria-labelledby="guideTitle" tabindex="-1" hidden>
   <header class="guide__bar">
-    <h2 class="guide__title">Guia do SireFlex</h2>
+    <h2 class="guide__title" id="guideTitle">Guia do SireFlex</h2>
     <button class="guide__close" type="button" aria-label="Fechar o guia">Fechar</button>
   </header>
-  <nav class="guide__tabs" role="tablist"></nav>
-  <div class="guide__body"></div>
+  <nav class="guide__tabs" role="tablist" aria-label="Seções do guia"></nav>
+  <div class="guide__body" role="tabpanel"></div>
 </div>
 
 <!-- ============================ sheets ============================ -->
@@ -241,7 +241,7 @@
             stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
 
-    <!-- AIR HORN: a pair of trumpets with the blast coming out -->
+    <!-- MANUAL: one rise and fall, the gesture the key plays -->
     <symbol id="i-manual" viewBox="0 0 64 44">
       <path d="M5 37c9 0 12-30 21-30s13 30 33 30" fill="none" stroke-width="3.4"
             stroke-linecap="round" stroke-linejoin="round"/>

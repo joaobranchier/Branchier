@@ -15,7 +15,7 @@
 
 import { driverClip } from './dsp.js';
 import {
-  renderSiren, renderHorn, renderMechSteady, renderSteady, renderRumble,
+  renderSiren, renderHorn, renderMechSteady, renderSteady, renderRumble, renderRumbleSteady,
 } from './render.js';
 
 /* ------------------------------------------------------------------ *
@@ -106,6 +106,7 @@ function toAudioBuffer(ctx, rendered) {
     out.release = rel;
   }
   if (rendered.peakHz) out.peakHz = rendered.peakHz;
+  if (rendered.cycle) out.cycleS = rendered.cycle / ctx.sampleRate;
   return out;
 }
 
@@ -124,13 +125,27 @@ export function getBuffers(engine, spec, opts = {}) {
   let rendered;
   switch (spec.kind) {
     case 'sweep':
-    case 'twotone':
-      rendered = renderSiren({ ...spec, rateHz: spec.rateHz * (opts.rate ?? 1) }, sr);
+    case 'twotone': {
+      // The tremolo on WA.WA and PHSR is locked to the sweep, so MOD has to
+      // move both. Scaling only the sweep left the pulse at its old rate
+      // under a faster or slower sweep, and the two drifted in and out of
+      // step with each other — the one thing the lock exists to prevent.
+      const r = opts.rate ?? 1;
+      rendered = renderSiren({
+        ...spec,
+        rateHz: spec.rateHz * r,
+        gate: spec.gate && { ...spec.gate, rateHz: spec.gate.rateHz * r },
+      }, sr);
       break;
+    }
     case 'horn':       rendered = renderHorn(spec, sr); break;
     case 'mechanical': rendered = renderMechSteady(spec, sr); break;
-    case 'manual':     rendered = renderSteady(spec.lo, sr); break;
-    case 'rumble':     rendered = renderRumble(spec, opts.source, sr); break;
+    case 'manual':     rendered = renderSteady(spec.lo, sr, spec.hi); break;
+    case 'rumble':
+      rendered = opts.steadyHz
+        ? renderRumbleSteady(opts.steadyHz, sr)
+        : renderRumble(spec, opts.source, sr);
+      break;
     default: throw new Error(`Tipo de voz desconhecido: ${spec.kind}`);
   }
 
@@ -168,17 +183,26 @@ export function prewarm(engine, tones, sourceForRumble) {
  * Voice
  * ------------------------------------------------------------------ */
 
+let serial = 0;
+
 class Voice {
   constructor(engine, spec, family, opts = {}) {
     this.engine = engine;
     this.ctx = engine.ctx;
     this.spec = spec;
     this.family = family;
+    /** Tells two voices of the same tone apart. */
+    this.uid = ++serial;
     this.startedAt = 0;
     this.stopped = false;
     this.killed = false;
     this.rateFactor = 1;
     this._nodes = [];
+    this._sources = [];
+    /** Voices whose pitch is driven by this one's (see lead()). */
+    this.followers = new Set();
+    /** The voice this one's pitch is driven by, if any. */
+    this.leader = null;
 
     const ctx = this.ctx;
     const v = VOICING[family];
@@ -242,7 +266,7 @@ class Voice {
     this._nodes.push(shaper, hp, lp, this.out);
   }
 
-  _source(buffers, loop = true) {
+  _source(buffers, loop = true, into = this.head) {
     const src = this.ctx.createBufferSource();
     src.buffer = buffers.buffer;
     if (loop) {
@@ -250,10 +274,40 @@ class Voice {
       src.loopStart = buffers.loopStart;
       src.loopEnd = buffers.buffer.duration;
     }
-    src.connect(this.head);
-    this._sources = this._sources || [];
+    src.connect(into);
     this._sources.push(src);
     return src;
+  }
+
+  /**
+   * Puts another voice's pitch under this one's: it then rises, falls, winds
+   * up or coasts exactly as this one does, for as long as both live, and is
+   * taken down with this one.
+   *
+   * Done by giving the follower's playback rate the very same automation as
+   * this voice's own — the state it is in right now, then every glide after
+   * it (see _eachRate). Connecting one shared control signal to both would
+   * have been tidier, but it would have put the leader's own pitch behind an
+   * AudioParam connection that no test here can check on an iPhone, and the
+   * leader is the manual wail. Its pitch path is left exactly as it was.
+   */
+  lead(follower) {
+    if (!this._syncFollower || !follower.follows) return false;
+    this._syncFollower(follower.src.playbackRate, this.ctx.currentTime);
+    follower.leader = this;
+    this.followers.add(follower);
+    return true;
+  }
+
+  /** Followers still sounding under this voice. */
+  get _liveFollowers() {
+    return [...this.followers].filter((f) => !f.stopped && !f.killed);
+  }
+
+  /** Runs one piece of pitch automation on this voice and on its followers. */
+  _eachRate(fn) {
+    fn(this.src.playbackRate);
+    for (const f of this._liveFollowers) fn(f.src.playbackRate);
   }
 
   fadeIn(t, seconds = 0.02) {
@@ -277,11 +331,18 @@ class Voice {
     this.out.gain.setValueAtTime(this.out.gain.value, t);
     this.out.gain.linearRampToValueAtTime(0, t + 0.012);
     this._teardown(t + 0.06);
+    // A follower has nothing left to follow once its leader is gone, and
+    // would otherwise hold whatever pitch it had reached. It goes too.
+    for (const f of this.followers) f.kill(when);
+    this.followers.clear();
+    this.leader?.followers.delete(this);
   }
 
   stop(when) {
     if (this.stopped || this.killed) return;
     this.stopped = true;
+    // Ending on its own, ahead of its leader: nothing to follow any more.
+    this.leader?.followers.delete(this);
     const t = when ?? this.ctx.currentTime;
     const rel = (this.spec.releaseMs ?? 40) / 1000;
     this.out.gain.cancelScheduledValues(t);
@@ -321,12 +382,26 @@ class Voice {
  * Sweeping and two-tone sirens
  * ------------------------------------------------------------------ */
 
+/** How long MOD takes to hand one sweep buffer over to the next. */
+const SWAP_S = 0.04;
+
 class SweepVoice extends Voice {
   constructor(engine, spec, opts) {
     super(engine, spec, 'siren', opts);
     this.opts = opts;
     this.buffers = getBuffers(engine, spec, { rate: 1 });
-    this.src = this._source(this.buffers);
+    this.layer = this._layer(this.buffers);
+    this.src = this.layer.src;
+    /** Where in its cycle the sweep was at `startedAt`, 0..1. */
+    this.phase0 = 0;
+  }
+
+  /** A looping source behind a gain of its own, so that two can crossfade. */
+  _layer(buffers) {
+    const gain = this.ctx.createGain();
+    gain.connect(this.head);
+    this._nodes.push(gain);
+    return { src: this._source(buffers, true, gain), gain };
   }
 
   start(when) {
@@ -336,31 +411,71 @@ class SweepVoice extends Voice {
     this.fadeIn(t, 0.03);
   }
 
+  /** Length of one sweep, in seconds, as rendered. */
+  get cycleS() {
+    return this.buffers.cycleS ?? 1 / (this.spec.rateHz * this.rateFactor);
+  }
+
+  /** Position in the sweep at time `t`, 0..1. */
+  phaseAt(t) {
+    const p = (this.phase0 + (t - this.startedAt) / this.cycleS) % 1;
+    return p < 0 ? p + 1 : p;
+  }
+
   /**
    * MOD trims the sweep rate, which means a different buffer rather than a
    * different playback rate — resampling would carry the pitch with it and
    * a wail swept faster is not a wail transposed up.
+   *
+   * The new buffer picks up at the same point of the sweep the old one had
+   * reached. It used to start from the top of its buffer, which is the
+   * bottom of the sweep: every press of MOD dropped a wail from wherever it
+   * was straight back to 725 Hz, with the old one still sounding on top of
+   * it for fifty milliseconds. A real rate pot changes the speed of the
+   * sweep and nothing else.
    */
   setRate(factor) {
     if (factor === this.rateFactor || this.killed || this.stopped) return;
-    this.rateFactor = factor;
     const t = this.ctx.currentTime;
+    const phase = this.phaseAt(t);
+
+    this.rateFactor = factor;
     const next = getBuffers(this.engine, this.spec, { rate: factor });
-    const src = this._source(next);
-    const old = this.src;
-    this.src = src;
+    const old = this.layer;
+    const layer = this._layer(next);
     this.buffers = next;
-    // Swapped under a short crossfade so the change is heard as a change of
-    // rate and not as a gap.
-    src.start(t);
-    try { old.stop(t + 0.05); } catch {}
+    this.layer = layer;
+    this.src = layer.src;
+    this.phase0 = phase;
     this.startedAt = t;
+
+    // The carrier underneath cannot line up — two different buffers — so the
+    // two are crossfaded, briefly, along an approximately equal-power path:
+    // a plain linear fade dips by 3 dB in the middle of the swap.
+    layer.gain.gain.setValueAtTime(0, t);
+    layer.gain.gain.linearRampToValueAtTime(0.71, t + SWAP_S / 2);
+    layer.gain.gain.linearRampToValueAtTime(1, t + SWAP_S);
+    layer.src.start(t, phase * this.cycleS);
+
+    const g = old.gain.gain;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.linearRampToValueAtTime(g.value * 0.71, t + SWAP_S / 2);
+    g.linearRampToValueAtTime(0, t + SWAP_S);
+    try { old.src.stop(t + SWAP_S + 0.01); } catch {}
+    // A tone left running for an hour with MOD pressed now and then should
+    // not keep every buffer it ever played hanging off the graph.
+    old.src.onended = () => {
+      try { old.src.disconnect(); old.gain.disconnect(); } catch {}
+      this._sources = (this._sources ?? []).filter((s) => s !== old.src);
+      const i = this._nodes.indexOf(old.gain);
+      if (i >= 0) this._nodes.splice(i, 1);
+    };
   }
 
   frequency() {
     const s = this.spec;
-    const rate = s.rateHz * this.rateFactor;
-    const phase = ((this.ctx.currentTime - this.startedAt) * rate) % 1;
+    const phase = this.phaseAt(this.ctx.currentTime);
     if (s.shape === 'sq') return phase < 0.5 ? s.hi : s.lo;
     const r = s.shape === 'ramp' ? (s.riseRatio ?? 0.68) : 0.5;
     const tri = phase < r ? phase / r : 1 - (phase - r) / (1 - r);
@@ -434,6 +549,21 @@ class MechVoice extends Voice {
     this.floorRate = 90 / this.peak;
   }
 
+  /** Full rotor speed: playback rate 1 is this pitch, and followers scale from it. */
+  get baseHz() { return this.peak; }
+
+  /** Puts a follower's rate where the rotor's is now, and on the rest of the wind-up. */
+  _syncFollower(rate, now) {
+    const s = this.spec;
+    rate.cancelScheduledValues(now);
+    rate.setValueAtTime(this.frequency(now) / this.peak, now);
+    if (this.phase !== 'up') return;
+    const knee = this.startedAt + s.spinUpS * 0.42;
+    const top = this.startedAt + s.spinUpS;
+    if (now < knee) rate.exponentialRampToValueAtTime(0.72, knee);
+    if (now < top) rate.exponentialRampToValueAtTime(1, top);
+  }
+
   start(when) {
     const t = when ?? this.ctx.currentTime;
     this.startedAt = t;
@@ -462,23 +592,31 @@ class MechVoice extends Voice {
     // The coaster clutch is the whole point of a Q: power comes off and it
     // freewheels down for the better part of a minute.
     const from = Math.max(this.floorRate, this.coastFrom / this.peak);
-    this.src.playbackRate.cancelScheduledValues(t);
-    this.src.playbackRate.setValueAtTime(from, t);
-    this.src.playbackRate.exponentialRampToValueAtTime(this.floorRate, t + s.coastDownS);
+    this._eachRate((rate) => {
+      rate.cancelScheduledValues(t);
+      rate.setValueAtTime(from, t);
+      rate.exponentialRampToValueAtTime(this.floorRate, t + s.coastDownS);
+    });
 
     // A coasting Q gets quieter as it slows. The old envelope held full
     // volume for thirteen seconds and then approached zero asymptotically,
     // so it was still at about a tenth of full level when teardown cut it —
     // loud enough to bury whatever came next, and a click at the end.
-    const g0 = Math.max(0.0002, this.out.gain.value);
-    this.out.gain.cancelScheduledValues(t);
-    this.out.gain.setValueAtTime(g0, t);
-    this.out.gain.setValueAtTime(g0, t + s.coastDownS * 0.12);
-    this.out.gain.exponentialRampToValueAtTime(g0 * 0.0016, t + s.coastDownS * 0.96);
-    // exponentialRampToValueAtTime cannot reach zero; this last hair of a
-    // ramp is what makes the end silence rather than a step.
-    this.out.gain.linearRampToValueAtTime(0, t + s.coastDownS);
-    this._teardown(t + s.coastDownS + 0.1);
+    const coast = (voice) => {
+      const g = voice.out.gain;
+      const g0 = Math.max(0.0002, g.value);
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(g0, t);
+      g.setValueAtTime(g0, t + s.coastDownS * 0.12);
+      g.exponentialRampToValueAtTime(g0 * 0.0016, t + s.coastDownS * 0.96);
+      // exponentialRampToValueAtTime cannot reach zero; this last hair of a
+      // ramp is what makes the end silence rather than a step.
+      g.linearRampToValueAtTime(0, t + s.coastDownS);
+      voice._teardown(t + s.coastDownS + 0.1);
+    };
+    coast(this);
+    // Anything riding on the rotor coasts down with it, not a moment sooner.
+    for (const f of this._liveFollowers) { f.stopped = true; coast(f); }
   }
 
   get tailS() { return this.spec.coastDownS; }
@@ -520,6 +658,17 @@ class ManualVoice extends Voice {
     this.rampStart = 0;
   }
 
+  /** Playback rate 1 is this pitch, and followers scale from it. */
+  get baseHz() { return this.base; }
+
+  /** Puts a follower's rate where this note is now, and on the rest of its glide. */
+  _syncFollower(rate, now) {
+    rate.cancelScheduledValues(now);
+    rate.setValueAtTime(this.frequency() / this.base, now);
+    const end = this.rampStart + this.rampS;
+    if (this.rampS && now < end) rate.exponentialRampToValueAtTime(this.rampTo / this.base, end);
+  }
+
   start(when) {
     const t = when ?? this.ctx.currentTime;
     this.startedAt = t;
@@ -553,14 +702,19 @@ class ManualVoice extends Voice {
     const t = when ?? this.ctx.currentTime;
     const dur = this._glide(this.spec.lo, this.spec.fallS, t);
 
-    const g = this.out.gain;
-    g.cancelScheduledValues(t);
-    g.setValueAtTime(g.value, t);
     // Full level through most of the fall — a manual wail is loud on the way
     // down — then out over the last fifth of it.
-    g.setValueAtTime(g.value, t + dur * 0.8);
-    g.linearRampToValueAtTime(0, t + dur);
-    this._teardown(t + dur + 0.05);
+    const fall = (voice) => {
+      const g = voice.out.gain;
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(g.value, t);
+      g.setValueAtTime(g.value, t + dur * 0.8);
+      g.linearRampToValueAtTime(0, t + dur);
+      voice._teardown(t + dur + 0.05);
+    };
+    fall(this);
+    // A follower falls with the note and goes quiet at the bottom with it.
+    for (const f of this._liveFollowers) { f.stopped = true; fall(f); }
   }
 
   /** @returns {number} how long the glide will take, in seconds. */
@@ -572,9 +726,11 @@ class ManualVoice extends Voice {
     const span = Math.abs(this.spec.hi - this.spec.lo);
     const dur = Math.max(0.08, seconds * (Math.abs(to - from) / span));
     this.rampFrom = from; this.rampTo = to; this.rampS = dur; this.rampStart = t;
-    this.src.playbackRate.cancelScheduledValues(t);
-    this.src.playbackRate.setValueAtTime(from / this.base, t);
-    this.src.playbackRate.exponentialRampToValueAtTime(to / this.base, t + dur);
+    this._eachRate((rate) => {
+      rate.cancelScheduledValues(t);
+      rate.setValueAtTime(from / this.base, t);
+      rate.exponentialRampToValueAtTime(to / this.base, t + dur);
+    });
     return dur;
   }
 
@@ -594,6 +750,21 @@ class ManualVoice extends Voice {
 class RumbleVoice extends Voice {
   constructor(engine, spec, source, opts) {
     super(engine, spec, 'rumble', opts);
+    /**
+     * Under a tone whose pitch is not a fixed sweep — the manual wail, the
+     * Q-siren — there is no sweep to render in advance. The layer is then a
+     * steady tone two octaves under that voice's base pitch, and its playback
+     * rate is given the same automation as that voice's (see Voice.lead): it
+     * rises under the thumb, winds up and coasts with the rotor, and falls
+     * when they fall.
+     */
+    if (opts?.followHz) {
+      this.follows = true;
+      this.buffers = getBuffers(engine, spec, { steadyHz: opts.followHz / 4, sourceId: `f${opts.followHz}` });
+      this.src = this._source(this.buffers);
+      this.mid = opts.followHz / 4;
+      return;
+    }
     /**
      * The layer sweeps with the siren it sits under, MOD included.
      *
@@ -621,6 +792,9 @@ class RumbleVoice extends Voice {
     this.fadeIn(t, 0.1);
   }
 
+  /** Rings out as long as whatever it follows does. */
+  get tailS() { return this.leader ? this.leader.tailS : super.tailS; }
+
   frequency() { return this.mid; }
 }
 
@@ -637,7 +811,7 @@ export function createVoice(engine, spec, context = {}) {
     case 'mechanical': return new MechVoice(engine, spec, opts);
     case 'manual':     return new ManualVoice(engine, spec, opts);
     case 'rumble':     return new RumbleVoice(engine, spec, context.source,
-                                               { ...opts, rate: context.rate });
+                                               { ...opts, rate: context.rate, followHz: context.followHz });
     default: throw new Error(`Tipo de voz desconhecido: ${spec.kind}`);
   }
 }

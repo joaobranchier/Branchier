@@ -133,7 +133,7 @@ try {
   const before = (await p.locator('#hint').innerText()).trim();
 
   // Publish: the page text changes, and the build number with it.
-  edit('index.html', 'Toque em qualquer botão para ligar o áudio', 'BUILD-NOVA-CHEGOU');
+  edit('index.html', 'Aperte qualquer botão para ligar o áudio', 'BUILD-NOVA-CHEGOU');
   edit('js/build.js', `export const BUILD = '${BUILD}'`, `export const BUILD = '${NEXT}'`);
   edit('sw.js', `const BUILD = '${BUILD}'`, `const BUILD = '${NEXT}'`);
 

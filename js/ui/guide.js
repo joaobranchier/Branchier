@@ -12,6 +12,35 @@ import { PATTERN_LIST } from './strobe.js';
 import { isIOS, isStandalone } from '../platform.js';
 import { BUILD, BUILD_DATE } from '../build.js';
 
+/**
+ * The panel's keyboard shortcuts: key, the faceplate key it presses, and the
+ * name the guide gives it. app.js wires them; the guide lists them.
+ */
+export const SHORTCUTS = [
+  ['1', '[data-tone="wail1"]', 'WAIL-1'],
+  ['2', '[data-tone="wail2"]', 'WAIL-2'],
+  ['3', '[data-tone="yelp"]', 'YELP'],
+  ['4', '[data-tone="hilo"]', 'HI-LO'],
+  ['5', '[data-tone="phaser"]', 'PHSR'],
+  ['6', '[data-tone="wawa"]', 'WA.WA'],
+  ['7', '[data-tone="mech"]', 'Q-SIREN'],
+  ['m', '#keyManual', 'MANUAL (segure)'],
+  ['b', '#keyHorn', 'AIR HORN (segure)'],
+  ['a', '#keyAuto', 'AUTO'],
+  ['r', '#keyRumble', 'RUMBLER'],
+  ['x', '#keyMix', 'MIX'],
+  ['v', '#keyMod', 'MOD'],
+  ['h', '#keyHigh', 'HIGH'],
+  ['g', '#keyBass', 'BASS'],
+  ['l', '#keyLmb', 'LED'],
+  ['z', '#keyLight', 'LUZ'],
+  [' ', '#keyStop', 'STOP'],
+];
+
+/** A device driven by a mouse and a keyboard, rather than by a finger. */
+export const keyboardFirst = () =>
+  !!window.matchMedia?.('(hover: hover) and (pointer: fine)').matches;
+
 /** The project's Pix key, for the donation block in Settings. */
 const PIX_KEY = 'be3fd7f9-5d4d-435a-84dd-404774ac812d';
 
@@ -71,7 +100,7 @@ function toneCard(id) {
         <span class="gplay__ico" aria-hidden="true"></span><span class="gplay__txt">Ouvir</span>
       </button>
     </header>
-    <p class="gcard__spec">${esc(t.spec)}</p>
+    <p class="gcard__spec">${t.spec.split(' · ').map((seg) => `<span>${esc(seg)}</span>`).join(' · ')}</p>
     ${sweepPlot(t)}
     <p class="gcard__body">${esc(t.blurb)}</p>
     <h4>Melhor uso</h4>
@@ -88,6 +117,13 @@ function pageTones() {
     ${Object.keys(TONES).map(toneCard).join('')}`;
 }
 
+/** MOD's steps in the order a press walks them, starting from the standard. */
+const modOrder = () => {
+  const n = MOD_STEPS.length;
+  const walk = Array.from({ length: n + 1 }, (_, i) => MOD_STEPS[(1 + i) % n].label);
+  return walk.join(' → ');
+};
+
 const KEYS = [
   { group: 'Tons', items: [
     ['WAIL-1 / WAIL-2', 'Travam a varredura lenta. Toque de novo para desligar.'],
@@ -102,10 +138,10 @@ const KEYS = [
   { group: 'Modificadores', items: [
     ['HIGH', 'Equalização cortante e de longo alcance. Tira corpo, ganha penetração no agudo.'],
     ['BASS', 'Acrescenta corpo grave. Combine com HIGH para o modo mais alto.'],
-    ['MOD', `Muda a velocidade de varredura do tom ativo: ${MOD_STEPS.map((m) => m.label).join(' → ')}.`],
-    ['MIX', 'Empilha tons em vez de trocá-los. Serve para rodar sirene e buzina juntas.'],
-    ['AUTO', 'Varre wail → yelp → phaser sozinho. Qualquer toque em um tom cancela.'],
-    ['RUMBLER', 'Camada grave por baixo do que estiver tocando. Não toca sozinha.'],
+    ['MOD', `Muda a velocidade da varredura: ${modOrder()}.`],
+    ['MIX', 'Empilha tons em vez de trocá-los — WAIL e YELP ao mesmo tempo, por exemplo. AIR HORN e MANUAL tocam por cima sempre, com ou sem MIX.'],
+    ['AUTO', 'Alterna WAIL-1 → YELP → PHSR sozinho, no intervalo escolhido em Ajustes. Tocar em qualquer tom cancela.'],
+    ['RUMBLER', 'Camada grave que acompanha a sirene tocando, inclusive o MANUAL e a Q-SIREN. Não toca sozinha.'],
   ]},
   { group: 'Luzes', items: [
     ['LED', 'Liga o giroflex vermelho/azul <b>atrás</b> do controle. Vem desligado e só acende aqui — os botões continuam funcionando com ele ligado.'],
@@ -114,22 +150,38 @@ const KEYS = [
   { group: 'Controle', items: [
     ['STOP', 'Corta tudo na hora, inclusive um tom que ainda estava descendo.'],
     ['Vol − / Vol +', 'Volume principal, na barra embaixo do aparelho.'],
-    ['Liga', 'Liga e desliga. Em standby o painel escurece e tudo se cala.'],
+    ['Liga', 'Liga e desliga. Em standby o painel escurece e tudo se cala; qualquer botão do painel liga de novo.'],
     ['Guia', 'Abre isto aqui.'],
     ['Ajustes', 'Abre isto aqui já na aba de ajustes.'],
   ]},
 ];
 
+/** The keyboard table, for a computer. A phone never shows it. */
+function keyboardTable() {
+  const cap = (k) => `<kbd>${k === ' ' ? 'Espaço' : esc(k.toUpperCase())}</kbd>`;
+  const rows = [
+    ...SHORTCUTS.map(([k, , name]) => [cap(k), esc(name)]),
+    [`${cap('↑')} ${cap('↓')}`, 'Volume'],
+    [cap('Esc'), 'Fecha o guia e apaga as luzes'],
+  ];
+  return `
+    <h3>Teclado</h3>
+    <dl class="gshort">
+      ${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}
+    </dl>`;
+}
+
 function pageKeys() {
   return `
-    <p class="gintro">Tudo também funciona por teclado: <b>Tab</b> para navegar,
-       <b>Enter</b> ou <b>Espaço</b> para acionar. Nos botões momentâneos o som dura
-       enquanto a tecla fica pressionada.</p>
+    ${keyboardFirst() ? `
+    <p class="gintro">No computador, cada botão também tem uma tecla — a lista
+       completa está no fim desta página.</p>` : ''}
     ${KEYS.map((g) => `
       <h3>${esc(g.group)}</h3>
       <dl class="gkeys">
         ${g.items.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}
-      </dl>`).join('')}`;
+      </dl>`).join('')}
+    ${keyboardFirst() ? keyboardTable() : ''}`;
 }
 
 function pageHow() {
@@ -263,7 +315,6 @@ function pageSettings() {
          piscantes, que podem desencadear crises em pessoas com epilepsia
          fotossensível.</p>
     </div>
-    <p class="gsmall">Sem anúncios e sem rastreamento. Nada sai do aparelho.</p>
 
     <h3>Versão</h3>
     <div class="switchrow">
@@ -276,8 +327,9 @@ function pageSettings() {
     </div>
 
     <h3>Apoie o projeto</h3>
-    <p class="gsmall">O SireFlex é gratuito, sem anúncios e sem rastreamento. Se ele
-       for útil para você, uma doação ajuda a manter o desenvolvimento.</p>
+    <p class="gsmall">O SireFlex é gratuito, sem anúncios e sem rastreamento — nada
+       sai do seu aparelho. Se ele for útil para você, uma doação ajuda a manter o
+       desenvolvimento.</p>
     <div class="pix">
       <span class="pix__label">Chave Pix</span>
       <code class="pix__key" id="pixKey">${PIX_KEY}</code>
@@ -301,6 +353,7 @@ const PAGES = { tones: pageTones, keys: pageKeys, how: pageHow, set: pageSetting
 export function initGuide(controller) {
   ctl = controller;
   const root = el();
+  ctl.onPreviewChange = syncPlayButtons;
 
   root.querySelector('.guide__close').addEventListener('click', closeGuide);
 
@@ -315,16 +368,34 @@ export function initGuide(controller) {
   // stale handlers behind.
   root.querySelector('.guide__body').addEventListener('click', (e) => {
     const play = e.target.closest('[data-play]');
-    if (play) { onPlay(play.dataset.play); return; }
+    if (play) { onPlay(play.dataset.play, play); return; }
+  });
+
+  // The tab bar is a tab list, and a tab list is walked with the arrow keys:
+  // one stop on it for Tab, then left and right between the pages.
+  root.querySelector('.guide__tabs').addEventListener('keydown', (e) => {
+    const order = TABS.map((t) => t.id);
+    const i = order.indexOf(tab);
+    const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: order.length - 1 }[e.key];
+    if (to === undefined) return;
+    e.preventDefault();
+    tab = order[(to + order.length) % order.length];
+    render();
+    root.querySelector(`[data-tab="${tab}"]`)?.focus();
   });
 }
 
-function onPlay(id) {
+function onPlay(id, btn) {
   ctl.ensureAudio().then(() => {
     ctl.haptics.tap();
     ctl.preview(id);
-    syncPlayButtons();
-  }).catch(() => {});
+  }).catch(() => {
+    // The panel's own notice is behind the guide, where nobody can see it.
+    ctl.audioUnavailable();
+    const txt = btn.querySelector('.gplay__txt');
+    if (txt) txt.textContent = 'Sem áudio';
+    setTimeout(syncPlayButtons, 2200);
+  });
 }
 
 /** Reflects which tone the guide is currently auditioning. */
@@ -340,21 +411,34 @@ function syncPlayButtons() {
 function render() {
   const root = el();
   for (const b of root.querySelectorAll('[data-tab]')) {
-    b.classList.toggle('is-on', b.dataset.tab === tab);
-    b.setAttribute('aria-selected', String(b.dataset.tab === tab));
+    const on = b.dataset.tab === tab;
+    b.classList.toggle('is-on', on);
+    b.setAttribute('aria-selected', String(on));
+    b.tabIndex = on ? 0 : -1;
   }
   const body = root.querySelector('.guide__body');
+  body.setAttribute('aria-label', TABS.find((t) => t.id === tab)?.label ?? '');
   body.innerHTML = PAGES[tab]();
   body.scrollTop = 0;
   if (tab === 'set') wireSettings(body);
   if (tab === 'tones') syncPlayButtons();
 }
 
+/** Whatever had focus before the guide opened, to hand it back after. */
+let opener = null;
+
 export function openGuide(startTab) {
   if (startTab) tab = startTab;
+  const wasOpen = guideOpen();
   el().hidden = false;
   document.body.classList.add('is-locked');
   render();
+  if (!wasOpen) {
+    opener = document.activeElement;
+    // Into the dialog, so a keyboard or a screen reader starts where the
+    // page now is rather than on the faceplate hidden behind it.
+    el().focus({ preventScroll: true });
+  }
 }
 
 export function closeGuide() {
@@ -362,6 +446,8 @@ export function closeGuide() {
   ctl.stopPreview();
   el().hidden = true;
   document.body.classList.remove('is-locked');
+  if (opener?.isConnected) opener.focus?.({ preventScroll: true });
+  opener = null;
 }
 
 export const guideOpen = () => !el().hidden;
@@ -393,6 +479,7 @@ function wireSettings(root) {
 
   root.querySelector('#sAuto').addEventListener('change', (e) => {
     ctl.setPref('autoSecs', Number(e.target.value));
+    ctl.rearmAuto();
   });
 
   const toggle = (sel, key, after) => {

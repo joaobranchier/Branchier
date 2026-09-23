@@ -1063,6 +1063,438 @@ console.log('\n--- version and self-update ---');
     (await p.locator('#update').evaluate((e) => getComputedStyle(e).display)) === 'none');
 }
 
+console.log('\n--- MOD changes the speed of the sweep and nothing else ---');
+{
+  // Every press of MOD used to start the new buffer from its top — the
+  // bottom of the sweep — so a wail at 1400 Hz dropped to 725 Hz, with the
+  // old buffer still sounding over it for fifty milliseconds. Rendered here
+  // through the real voice and chain, and the pitch measured on both sides.
+  const r = await p.evaluate(async () => {
+    const [{ AudioEngine }, { createVoice, getBuffers }, { TONES }] = await Promise.all([
+      import('./js/audio/engine.js'), import('./js/audio/voices.js'), import('./js/audio/tones.js')]);
+    const SR = 48000;
+    const ctx = new OfflineAudioContext(1, SR * 2, SR);
+    const engine = new AudioEngine(); engine.attachContext(ctx);
+    engine.wet.gain.value = 0;
+    const v = createVoice(engine, TONES.wail1); v.start(0);
+    const at = 1.3;
+    const shown = {};
+    ctx.suspend(at).then(() => {
+      shown.before = v.frequency();
+      v.setRate(1.55);
+      shown.after = v.frequency();
+      ctx.resume();
+    });
+    const d = (await ctx.startRendering()).getChannelData(0);
+
+    // Autocorrelation pitch, in 12 ms windows either side of the swap.
+    const pitch = (s) => {
+      let best = 0, lag0 = 0;
+      for (let lag = 24; lag <= 70; lag++) {
+        let c = 0, e1 = 0, e2 = 0;
+        for (let i = 0; i < 576; i++) { c += d[s + i] * d[s + i + lag]; e1 += d[s + i] ** 2; e2 += d[s + i + lag] ** 2; }
+        const q = c / Math.sqrt(e1 * e2 + 1e-12);
+        if (q > best) { best = q; lag0 = lag; }
+      }
+      return SR / lag0;
+    };
+    // Octave errors are the tracker's, not the siren's: fold to the sweep band.
+    const fold = (f) => { while (f < 700) f *= 2; while (f > 1850) f /= 2; return f; };
+    const pre = fold(pitch(Math.round((at - 0.03) * SR)));
+    const post = fold(pitch(Math.round((at + 0.05) * SR)));
+    let peak = 0, steady = 0;
+    for (let i = Math.round((at - 0.01) * SR); i < Math.round((at + 0.06) * SR); i++) peak = Math.max(peak, Math.abs(d[i]));
+    for (let i = Math.round(0.5 * SR); i < Math.round(1.2 * SR); i++) steady = Math.max(steady, Math.abs(d[i]));
+
+    // WA.WA's tremolo is locked to its sweep; at FAST both must move.
+    const fast = getBuffers(engine, TONES.wawa, { rate: 1.55 });
+    const w = fast.buffer.getChannelData(0);
+    const win = 240, env = [];
+    for (let i = 0; i + win <= w.length; i += win) {
+      let s = 0; for (let j = 0; j < win; j++) s += w[i + j] ** 2; env.push(Math.sqrt(s / win));
+    }
+    const mean = env.reduce((a, b) => a + b, 0) / env.length;
+    let bestLag = 0, bestC = -Infinity;
+    for (let lag = 20; lag < env.length / 2; lag++) {
+      let c = 0; for (let i = 0; i + lag < env.length; i++) c += (env[i] - mean) * (env[i + lag] - mean);
+      if (c > bestC) { bestC = c; bestLag = lag; }
+    }
+    return { pre, post, shown, peak, steady,
+      tremoloS: (bestLag * win) / SR, sweepS: 1 / (TONES.wawa.rateHz * 1.55) };
+  });
+  ok('MOD does not send the sweep back to the bottom',
+    Math.abs(r.post - r.pre) < 120, `${r.pre.toFixed(0)} Hz -> ${r.post.toFixed(0)} Hz`);
+  ok('and the display agrees', Math.abs(r.shown.after - r.shown.before) < 5,
+    `${r.shown.before.toFixed(0)} -> ${r.shown.after.toFixed(0)} Hz`);
+  ok('the handover does not stack two sirens', r.peak <= r.steady * 1.08,
+    `pico ${r.peak.toFixed(3)} (normal ${r.steady.toFixed(3)})`);
+  ok('WA.WA tremolo follows MOD with the sweep', Math.abs(r.tremoloS - r.sweepS) / r.sweepS < 0.06,
+    `tremolo ${r.tremoloS.toFixed(3)} s, varredura ${r.sweepS.toFixed(3)} s`);
+}
+
+console.log('\n--- RUMBLER follows a played tone, not a sweep of its own ---');
+{
+  // Under MANUAL the layer used to sweep by itself at the wail's rate, deaf
+  // to the thumb, and cut out the instant the key was let go while the note
+  // was still falling. It now rides on the manual voice's own pitch control.
+  const r = await p.evaluate(async () => {
+    const [{ AudioEngine }, { createVoice }, { TONES }] = await Promise.all([
+      import('./js/audio/engine.js'), import('./js/audio/voices.js'), import('./js/audio/tones.js')]);
+    const SR = 48000;
+    const ctx = new OfflineAudioContext(1, SR * 5, SR);
+    const engine = new AudioEngine(); engine.attachContext(ctx);
+    engine.wet.gain.value = 0;
+    const lead = createVoice(engine, TONES.manual);
+    lead.out.disconnect();                       // listen to the layer alone
+    const layer = createVoice(engine, TONES.rumbler, { followHz: lead.baseHz });
+    const linked = lead.lead?.(layer) ?? false;
+    lead.start(0); layer.start(0);
+    const release = 1.6;
+    ctx.suspend(release).then(() => { lead.stop(ctx.currentTime); ctx.resume(); });
+    const d = (await ctx.startRendering()).getChannelData(0);
+
+    // Autocorrelation, taking the shortest lag that correlates nearly as
+    // well as the best one: twice the period correlates just as well, and
+    // picking it would read every note an octave low.
+    const pitch = (t) => {
+      const s = Math.round(t * SR), win = 2400, q = [];
+      for (let lag = 100; lag <= 420; lag++) {
+        let c = 0, e1 = 0, e2 = 0;
+        for (let i = 0; i < win; i++) { c += d[s + i] * d[s + i + lag]; e1 += d[s + i] ** 2; e2 += d[s + i + lag] ** 2; }
+        q[lag] = c / Math.sqrt(e1 * e2 + 1e-12);
+      }
+      const best = Math.max(...q.filter(Number.isFinite));
+      let lag0 = 100;
+      while (lag0 < 420 && !(q[lag0] >= best * 0.92 && q[lag0] >= q[lag0 - 1] && q[lag0] >= q[lag0 + 1])) lag0++;
+      return SR / lag0;
+    };
+    const level = (t) => {
+      let s = 0; const a = Math.round(t * SR), n = 2400;
+      for (let i = a; i < a + n; i++) s += d[i] ** 2;
+      return Math.sqrt(s / n);
+    };
+    return {
+      linked,
+      low: pitch(0.12), high: pitch(1.45), falling: pitch(release + 1.0),
+      before: level(release - 0.1), during: level(release + 0.9), after: level(release + 2.6),
+    };
+  });
+  ok('the layer is driven by the manual voice', r.linked);
+  ok('it rises with the thumb, two octaves down',
+    r.low < 170 && r.high > 300, `${r.low.toFixed(0)} Hz -> ${r.high.toFixed(0)} Hz`);
+  ok('and falls with the note when it is let go', r.falling < r.high - 40,
+    `${r.high.toFixed(0)} Hz -> ${r.falling.toFixed(0)} Hz`);
+  ok('still sounding through the fall, not cut at the release', r.during > r.before * 0.3,
+    `${(r.during / r.before * 100).toFixed(0)}% do nível`);
+  ok('and silent at the bottom', r.after < r.before * 0.01, `${(r.after / r.before * 100).toFixed(2)}%`);
+
+  // Switched on halfway through the Q's wind-up, the layer has to join the
+  // rotor where it is — not start from rest, and not jump to full speed.
+  const q = await p.evaluate(async () => {
+    const [{ AudioEngine }, { createVoice }, { TONES }] = await Promise.all([
+      import('./js/audio/engine.js'), import('./js/audio/voices.js'), import('./js/audio/tones.js')]);
+    const SR = 48000;
+    const ctx = new OfflineAudioContext(1, SR * 4, SR);
+    const engine = new AudioEngine(); engine.attachContext(ctx);
+    engine.wet.gain.value = 0;
+    const rotor = createVoice(engine, TONES.mech);
+    rotor.out.disconnect();
+    rotor.start(0);
+    let layer = null;
+    ctx.suspend(0.8).then(() => {
+      layer = createVoice(engine, TONES.rumbler, { followHz: rotor.baseHz });
+      rotor.lead?.(layer);
+      layer.start(ctx.currentTime);
+      ctx.resume();
+    });
+    const d = (await ctx.startRendering()).getChannelData(0);
+    const pitch = (t) => {
+      const s = Math.round(t * SR), win = 3600, q = [];
+      for (let lag = 60; lag <= 900; lag++) {
+        let c = 0, e1 = 0, e2 = 0;
+        for (let i = 0; i < win; i++) { c += d[s + i] * d[s + i + lag]; e1 += d[s + i] ** 2; e2 += d[s + i + lag] ** 2; }
+        q[lag] = c / Math.sqrt(e1 * e2 + 1e-12);
+      }
+      const best = Math.max(...q.filter(Number.isFinite));
+      let lag0 = 60;
+      while (lag0 < 900 && !(q[lag0] >= best * 0.92 && q[lag0] >= q[lag0 - 1] && q[lag0] >= q[lag0 + 1])) lag0++;
+      return SR / lag0;
+    };
+    return {
+      mid: pitch(1.4), midWant: rotor.frequency(1.45) / 4,
+      top: pitch(3.2), topWant: rotor.baseHz / 4,
+    };
+  });
+  ok('joining a Q mid wind-up, the layer picks the rotor up where it is',
+    Math.abs(q.mid - q.midWant) / q.midWant < 0.08,
+    `${q.mid.toFixed(0)} Hz (rotor/4 = ${q.midWant.toFixed(0)} Hz)`);
+  ok('and reaches full speed with it', Math.abs(q.top - q.topWant) / q.topWant < 0.05,
+    `${q.top.toFixed(0)} Hz (rotor/4 = ${q.topWant.toFixed(0)} Hz)`);
+
+  // End to end, through the controller: nothing may throw, and STOP must
+  // still reach a layer that is falling with its note.
+  errs.length = 0;
+  await p.locator('#keyRumble').click();
+  const mb = await p.locator('#keyManual').boundingBox();
+  await p.mouse.move(mb.x + mb.width / 2, mb.y + mb.height / 2);
+  await p.mouse.down();
+  await p.waitForTimeout(700);
+  await p.mouse.up();
+  await p.waitForTimeout(300);
+  await p.locator('#keyStop').click();
+  await p.waitForTimeout(500);
+  ok('RUMBLER + MANUAL: silent after STOP', (await meter()) < 2, `${(await meter()).toFixed(0)}%`);
+  await p.locator('[data-tone="mech"]').click();
+  await p.waitForTimeout(1200);
+  await p.locator('[data-tone="mech"]').click();       // off: it coasts
+  await p.waitForTimeout(600);
+  const coasting = await meter();
+  await p.locator('#keyStop').click();
+  await p.waitForTimeout(500);
+  ok('RUMBLER + Q-SIREN: coasting, then silent after STOP', coasting > 5 && (await meter()) < 2,
+    `${coasting.toFixed(0)}% -> ${(await meter()).toFixed(0)}%`);
+  await p.locator('#keyRumble').click();
+  ok('no page errors from the layer', errs.length === 0, errs.slice(0, 2).join(' | '));
+}
+
+console.log('\n--- a key pressed in standby wakes the whole panel ---');
+{
+  await p.locator('#keyStop').click();
+  await p.waitForTimeout(200);
+  await p.locator('#dockPower').click();          // power down
+  await p.waitForTimeout(250);
+  ok('powered down, the panel dims',
+    await p.locator('#remote').evaluate((e) => e.classList.contains('is-standby')));
+  await p.locator('[data-tone="wail1"]').click();  // a tone wakes it
+  await p.waitForTimeout(400);
+  ok('a tone key wakes it, and it stops being dim',
+    !(await p.locator('#remote').evaluate((e) => e.classList.contains('is-standby'))));
+  ok('with the power key lit to match',
+    await p.locator('#dockPower').evaluate((e) => e.classList.contains('is-on')));
+  await p.locator('#keyStop').click();
+  await p.waitForTimeout(300);
+}
+
+console.log('\n--- the guide\'s play button follows the sound ---');
+{
+  // The air horn's audition ends by itself; its button went on reading
+  // "Parar" over silence until it was pressed again.
+  await p.locator('#dockGuide').click();
+  await p.waitForTimeout(300);
+  await p.locator('[data-tab="tones"]').click();
+  await p.waitForTimeout(300);
+  const btn = p.locator('[data-play="airhorn"]');
+  await btn.click();
+  await p.waitForTimeout(300);
+  const during = (await btn.innerText()).trim();
+  await p.waitForTimeout(2600);
+  const after = (await btn.innerText()).trim();
+  ok('while the horn sounds it says Parar', /Parar/.test(during), during);
+  ok('and goes back to Ouvir when it ends', /Ouvir/.test(after), after);
+
+  // Space inside the guide belongs to whatever has focus there. It used to
+  // fire STOP as well, which cut the very preview the button had started.
+  await p.locator('[data-play="wail1"]').click();
+  await p.waitForTimeout(400);
+  // Nothing focused: a focused button would take the Space for itself, which
+  // is right, and is not what is being tested.
+  await p.evaluate(() => document.activeElement?.blur());
+  await p.keyboard.press(' ');
+  await p.waitForTimeout(400);
+  // Listened for, not read off the button: STOP used to kill the preview and
+  // leave the button saying it was still playing.
+  ok('Space in the guide is not STOP', (await meter()) > 5, `medidor ${(await meter()).toFixed(0)}%`);
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(300);
+}
+
+console.log('\n--- AUTO follows its interval when it is changed ---');
+{
+  await p.locator('#dockSet').click();
+  await p.waitForTimeout(300);
+  await p.locator('#sAuto').selectOption('12');
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(200);
+  await p.locator('#keyAuto').click();
+  await p.waitForTimeout(600);
+  const first = await p.locator('#lcdTone').innerText();
+  // Changed while running: the scan has to pick the new interval up now, not
+  // the next time AUTO is switched on.
+  await p.locator('#dockSet').click();
+  await p.waitForTimeout(250);
+  await p.locator('#sAuto').selectOption('4');
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(4700);
+  const next = await p.locator('#lcdTone').innerText();
+  ok('a new AUTO interval applies to a running scan', first !== next, `${first} -> ${next}`);
+  await p.locator('#keyAuto').click();
+  await p.locator('#keyStop').click();
+  await p.locator('#dockSet').click();
+  await p.waitForTimeout(250);
+  await p.locator('#sAuto').selectOption('6');
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(300);
+}
+
+console.log('\n--- on a computer, the keyboard plays the panel ---');
+{
+  const ctxK = await b.newContext({ viewport: { width: 1366, height: 768 } });
+  await ctxK.addInitScript(() => {
+    window.__live = 0;
+    const start = AudioBufferSourceNode.prototype.start;
+    AudioBufferSourceNode.prototype.start = function (...a) {
+      window.__live++;
+      this.addEventListener('ended', () => { window.__live--; });
+      return start.apply(this, a);
+    };
+  });
+  const pk = await ctxK.newPage();
+  const kErrs = [];
+  pk.on('pageerror', (e) => kErrs.push(e.message));
+  await pk.goto(`${BASE}/index.html`);
+  await pk.waitForTimeout(500);
+  await pk.locator('.btn[data-close]').click();
+  await pk.waitForTimeout(200);
+  const on = (sel) => pk.locator(sel).evaluate((e) => e.classList.contains('is-on'));
+
+  await pk.keyboard.press('1');
+  await pk.waitForTimeout(500);
+  ok('1 latches WAIL-1', await on('[data-tone="wail1"]'));
+  await pk.keyboard.press('3');
+  await pk.waitForTimeout(400);
+  ok('3 moves to YELP', (await on('[data-tone="yelp"]')) && !(await on('[data-tone="wail1"]')));
+
+  await pk.keyboard.down('m');
+  await pk.waitForTimeout(500);
+  const held = await pk.locator('#keyManual').evaluate((e) => e.classList.contains('is-down'));
+  const shownHeld = await pk.locator('#lcdTone').innerText();
+  await pk.keyboard.up('m');
+  await pk.waitForTimeout(300);
+  ok('M holds MANUAL while the key is down', held && /MANUAL/.test(shownHeld), shownHeld);
+  ok('and lets it go with the key',
+    !(await pk.locator('#keyManual').evaluate((e) => e.classList.contains('is-down'))));
+
+  const v0 = await pk.evaluate(() => JSON.parse(localStorage.getItem('sireflex.v1') || '{}').volume ?? 0.8);
+  await pk.keyboard.press('ArrowDown');
+  await pk.waitForTimeout(150);
+  const v1 = await pk.evaluate(() => JSON.parse(localStorage.getItem('sireflex.v1')).volume);
+  ok('the arrow keys move the volume', v1 < v0, `${v0.toFixed(2)} -> ${v1.toFixed(2)}`);
+
+  await pk.keyboard.press(' ');
+  await pk.waitForTimeout(400);
+  ok('Space is STOP', !(await on('[data-tone="yelp"]')));
+
+  // Inside the guide the letters are text and the numbers are nothing.
+  await pk.locator('#dockGuide').click();
+  await pk.waitForTimeout(300);
+  await pk.keyboard.press('1');
+  await pk.waitForTimeout(300);
+  ok('shortcuts stay quiet while the guide is open', !(await on('[data-tone="wail1"]')));
+
+  // The tab list walks with the arrows.
+  await pk.locator('[data-tab="tones"]').focus();
+  await pk.keyboard.press('ArrowRight');
+  await pk.waitForTimeout(250);
+  ok('the arrow keys move between the guide\'s tabs',
+    await pk.locator('[data-tab="keys"]').evaluate((e) => e.classList.contains('is-on')));
+  const listed = await pk.locator('.guide__body').innerText();
+  ok('and the guide lists the shortcuts on a computer', /teclado/i.test(listed) && /Espaço/.test(listed));
+  await pk.keyboard.press('Escape');
+  await pk.waitForTimeout(250);
+  ok('Esc closes the guide', await pk.locator('#guide').evaluate((e) => e.hidden));
+  ok('each key names its shortcut when hovered',
+    /tecla 1/.test(await pk.locator('[data-tone="wail1"]').getAttribute('title') || ''));
+  ok('no page errors from the keyboard', kErrs.length === 0, kErrs.slice(0, 2).join(' | '));
+  await ctxK.close();
+
+  // And a phone does not get told about a keyboard it does not have.
+  await p.locator('#dockGuide').click();
+  await p.waitForTimeout(250);
+  await p.locator('[data-tab="keys"]').click();
+  await p.waitForTimeout(250);
+  ok('a phone does not list keyboard shortcuts',
+    !/teclado/i.test(await p.locator('.guide__body').innerText()));
+  await p.locator('.guide__close').click();
+  await p.waitForTimeout(200);
+}
+
+console.log('\n--- the layout, at every size ---');
+{
+  const sizes = [
+    ['iPhone SE', 375, 667, true], ['iPhone 15', 393, 852, true],
+    ['iPad', 820, 1180, true], ['laptop', 1366, 768, false], ['monitor', 1920, 1080, false],
+  ];
+  for (const [name, w, h, mobile] of sizes) {
+    const c = await b.newContext({ viewport: { width: w, height: h }, isMobile: mobile, hasTouch: mobile });
+    const q = await c.newPage();
+    await q.goto(`${BASE}/index.html`);
+    await q.waitForTimeout(500);
+    const sheetW = await q.locator('.sheet__panel').evaluate((e) => e.getBoundingClientRect().width);
+    await q.locator('.btn[data-close]').click();
+    await q.waitForTimeout(250);
+    const m = await q.evaluate(() => {
+      const r = document.querySelector('.remote').getBoundingClientRect();
+      const d = document.querySelector('.dock').getBoundingClientRect();
+      const hint = document.querySelector('.hint').getBoundingClientRect();
+      const line = getComputedStyle(document.querySelector('.dock'), '::before');
+      return {
+        scrolls: document.documentElement.scrollHeight > innerHeight + 1
+          || document.documentElement.scrollWidth > innerWidth + 1,
+        dockBottom: d.bottom, remoteW: r.width, remoteH: r.height,
+        hairline: d.top + parseFloat(line.top), hintBottom: hint.bottom,
+      };
+    });
+    // The faceplate is sized by whichever of width and height runs out
+    // first. It used to leave a third of every screen unused.
+    const fill = Math.max(m.remoteW / (w - 16), m.remoteH / (h - 104));
+    ok(`${name}: fits without scrolling`, !m.scrolls && m.dockBottom <= h + 0.5,
+      `dock termina em ${m.dockBottom.toFixed(0)} de ${h}`);
+    ok(`${name}: the faceplate uses the room it has`, fill > 0.9 || m.remoteW >= 629,
+      `${m.remoteW.toFixed(0)}x${m.remoteH.toFixed(0)} (${(fill * 100).toFixed(0)}%)`);
+    ok(`${name}: the hint clears the dock's hairline`, m.hairline >= m.hintBottom + 2,
+      `linha em ${m.hairline.toFixed(0)}, dica termina em ${m.hintBottom.toFixed(0)}`);
+    if (w >= 640) {
+      ok(`${name}: the welcome is a dialog, not a banner`, sheetW <= 600, `${sheetW.toFixed(0)} px`);
+    }
+
+    await q.locator('#dockGuide').click();
+    await q.waitForTimeout(300);
+    for (const tab of ['tones', 'how']) {
+      await q.locator(`[data-tab="${tab}"]`).click();
+      await q.waitForTimeout(250);
+      const g = await q.evaluate(() => {
+        const body = document.querySelector('.guide__body');
+        const text = body.querySelector('.gcard__body, .gintro');
+        const charts = [...body.querySelectorAll('svg.dg')];
+        // A label is inside its picture when its box is inside the viewBox.
+        const spill = charts.flatMap((svg) => {
+          const vb = svg.viewBox.baseVal;
+          return [...svg.querySelectorAll('text')].filter((t) => {
+            const bb = t.getBBox();
+            return bb.x < vb.x - 0.5 || bb.x + bb.width > vb.x + vb.width + 0.5;
+          }).map((t) => t.textContent);
+        });
+        return {
+          line: text.getBoundingClientRect().width,
+          chart: Math.max(...charts.map((c) => c.getBoundingClientRect().width)),
+          tick: Math.max(...charts.map((c) => {
+            const t = c.querySelector('.dg-tick');
+            return t ? t.getBoundingClientRect().height : 0;
+          })),
+          spill,
+        };
+      });
+      if (tab === 'tones') {
+        ok(`${name}: the guide reads in a column`, g.line <= 760, `linha de ${g.line.toFixed(0)} px`);
+        ok(`${name}: chart type is text-sized, not zoomed`, g.tick <= 20, `${g.tick.toFixed(1)} px`);
+      }
+      ok(`${name}: no chart label hangs outside its picture (${tab})`, g.spill.length === 0,
+        g.spill.slice(0, 3).join(', '));
+    }
+    await c.close();
+  }
+}
+
 console.log(`\n\x1b[1m${pass}/${pass + fail} UI checks passed\x1b[0m${fail ? `  \x1b[31m(${fail} failing)\x1b[0m` : ''}`);
 console.log('page errors:', errs.length ? errs.slice(0, 3) : 'none');
 await b.close();

@@ -123,7 +123,16 @@ export function renderSiren(spec, sr) {
   // The tail past L is blended onto the head, so the buffer keeps its exact
   // period and the joint is inaudible even though a swept waveform can never
   // line up perfectly with itself.
-  return { data: normalize(crossfadeLoop(raw, sr, (xf / sr) * 1000), 0.85), loopStart: 0 };
+  //
+  // `cycle` is the length of one sweep in samples. The voice needs it to know
+  // where in the sweep it is, so that MOD can hand over to a faster or slower
+  // buffer at the same point instead of starting the sweep again from the
+  // bottom.
+  return {
+    data: normalize(crossfadeLoop(raw, sr, (xf / sr) * 1000), 0.85),
+    loopStart: 0,
+    cycle: n,
+  };
 }
 
 /** Amplitude pulsing locked to the sweep, for the phaser and wa-wa. */
@@ -316,20 +325,30 @@ export function renderMechSteady(spec, sr) {
  * The manual wail follows a finger, so it cannot be a fixed sweep. A steady
  * tone is rendered once and the pitch is driven by playback rate, which is
  * what a siren head does anyway: the same generator, run faster.
+ *
+ * `topHz` is the highest pitch it will be played at. Running a buffer faster
+ * moves every harmonic in it up by the same factor, and the ones pushed past
+ * Nyquist do not vanish — they fold back down as faint whistles that fall
+ * while the siren rises. So only the harmonics that stay below Nyquist at the
+ * top of the travel are rendered. What that leaves out at the bottom lives
+ * above 8 kHz, where the siren's own radiator has already taken it away.
  */
-export function renderSteady(baseHz, sr) {
+export function renderSteady(baseHz, sr, topHz = baseHz) {
   const cycles = 64;
   const n = Math.round(sr * cycles / baseHz);
+  // Tuned to the buffer rather than the other way round: a whole number of
+  // cycles in a whole number of samples is a loop with no joint at all. The
+  // correction is a few thousandths of a percent.
+  const hz = (cycles * sr) / n;
   const out = new Float32Array(n);
   const amps = squareHarmonics(MAX_H);
   amps[2] = 0.20; amps[4] = 0.07;
   const nyq = sr * 0.5;
+  const keep = Math.max(1, Math.floor((nyq * 0.98) / Math.max(topHz, baseHz)));
+  for (let k = keep + 1; k < amps.length; k++) amps[k] = 0;
 
-  let ph = 0;
   for (let i = 0; i < n; i++) {
-    ph += TAU * baseHz / sr;
-    if (ph > TAU) ph -= TAU;
-    out[i] = harmonicSum(ph, amps, baseHz, nyq);
+    out[i] = harmonicSum((TAU * hz * (i + 1)) / sr, amps, hz, nyq);
   }
   return { data: normalize(out, 0.85), loopStart: 0 };
 }
@@ -367,6 +386,23 @@ export function renderRumble(spec, source, sr) {
     if (i >= warm) raw[i - warm] = harmonicSum(ph, amps, f, nyq);
   }
   return { data: normalize(crossfadeLoop(raw, sr, (xf / sr) * 1000), 0.9), loopStart: 0 };
+}
+
+/**
+ * The same layer as a steady tone, for riding under a voice whose pitch is
+ * played rather than swept: the voice's own pitch control drives it, so all
+ * it needs is the sound at one pitch. Same harmonic make-up as above, and a
+ * whole number of cycles so it loops on itself.
+ */
+export function renderRumbleSteady(baseHz, sr) {
+  const cycles = 32;
+  const n = Math.round((sr * cycles) / baseHz);
+  const hz = (cycles * sr) / n;
+  const amps = new Float64Array(9);
+  amps[1] = 1; amps[2] = 0.40; amps[3] = 0.22; amps[4] = 0.10;
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) out[i] = harmonicSum((TAU * hz * (i + 1)) / sr, amps, hz, sr * 0.5);
+  return { data: normalize(out, 0.9), loopStart: 0 };
 }
 
 /* ------------------------------------------------------------------ *

@@ -16,7 +16,17 @@ const PLOT_W = W - PAD_L - PAD_R;
 const PLOT_H = H - PAD_T - PAD_B;
 
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
-const fmtHz = (hz) => (hz >= 1000 ? `${(hz / 1000).toFixed(1).replace('.', ',')}k` : Math.round(hz));
+
+/**
+ * Tick labels are centred on their tick, except the last one: centred on the
+ * frame's right edge, half of it hung outside the picture and was cut off by
+ * the card on a phone.
+ */
+const edgeAnchor = (i, all) => (i === all.length - 1 ? 'end' : 'middle');
+// 1800 reads 1,8k; a round thousand reads 1k and 6k rather than 1,0k.
+const fmtHz = (hz) => (hz >= 1000
+  ? `${(hz / 1000).toFixed(1).replace(/\.0$/, '').replace('.', ',')}k`
+  : Math.round(hz));
 const fmtS = (s) => (s >= 1 ? `${s.toFixed(1).replace('.', ',')} s` : `${Math.round(s * 1000)} ms`);
 
 /* ------------------------------------------------------------------ *
@@ -32,36 +42,42 @@ function trace(spec) {
 
   if (spec.kind === 'mechanical') {
     // The rotor's whole story: wind-up under power, then the coast-down.
+    // Same curve the voice plays — from 70 Hz at stall, through the knee at
+    // 72% of full speed, and down on the clutch towards 90 Hz. The picture
+    // used to start at 14 Hz and coast to 9, which is not what anyone hears.
     const total = spec.spinUpS + spec.coastDownS;
     const peak = (spec.runRpm / 60) * spec.ports;
-    const idle = (60 / 60) * spec.ports;
+    const stall = 70;
+    const floor = 90;
     const kneeT = spec.spinUpS * 0.42;
     const kneeHz = peak * 0.72;
     const pts = [];
     for (let i = 0; i <= 160; i++) {
       const t = (i / 160) * total;
       let hz;
-      if (t <= kneeT) hz = idle * Math.pow(kneeHz / idle, t / kneeT);
+      if (t <= kneeT) hz = stall * Math.pow(kneeHz / stall, t / kneeT);
       else if (t < spec.spinUpS) hz = kneeHz * Math.pow(peak / kneeHz, (t - kneeT) / (spec.spinUpS - kneeT));
-      else hz = peak * Math.pow(((40 / 60) * spec.ports) / peak, (t - spec.spinUpS) / spec.coastDownS);
+      else hz = peak * Math.pow(floor / peak, (t - spec.spinUpS) / spec.coastDownS);
       pts.push([t, hz]);
     }
     return {
-      pts, span: total, lo: idle, hi: peak,
+      pts, span: total, lo: stall, hi: peak,
       caption: `sobe em ${fmtS(spec.spinUpS)}, desce em ${fmtS(spec.coastDownS)}`,
       marks: [{ t: spec.spinUpS, label: 'corta a força' }],
     };
   }
 
   if (spec.kind === 'horn') {
-    // A chord does not sweep: it is three steady bells struck together.
+    // Trumpets do not sweep: each holds its own note from start to finish.
     const span = 1.2;
     return {
       pts: null,
       lines: spec.bells.map((b) => b.hz),
       span, lo: Math.min(...spec.bells.map((b) => b.hz)) * 0.8,
       hi: Math.max(...spec.bells.map((b) => b.hz)) * 1.15,
-      caption: `${spec.bells.length} trombetas em acorde, sem varredura`,
+      caption: spec.bells.length === 2
+        ? 'duas trombetas juntas, sem varredura'
+        : `${spec.bells.length} trombetas juntas, sem varredura`,
     };
   }
 
@@ -168,10 +184,12 @@ export function sweepPlot(spec) {
           stroke="currentColor" stroke-width="1" opacity=".18" stroke-dasharray="3 3"/>
     <text x="${PAD_L - 5}" y="${(y(hz) + 3.5).toFixed(1)}" text-anchor="end" class="dg-tick">${label}</text>`;
 
+  // Labelled at the foot of the plot: every mark sits where its curve peaks,
+  // so the top is where the line is and the bottom is where the room is.
   const marks = (t.marks ?? []).map((m) => `
     <line x1="${x(m.t).toFixed(1)}" y1="${PAD_T}" x2="${x(m.t).toFixed(1)}" y2="${PAD_T + PLOT_H}"
           stroke="var(--red-hi)" stroke-width="1.2" stroke-dasharray="2 3" opacity=".8"/>
-    <text x="${(x(m.t) + 4).toFixed(1)}" y="${PAD_T + 9}" class="dg-tick" fill="var(--red-hi)">${m.label}</text>`).join('');
+    <text x="${(x(m.t) + 4).toFixed(1)}" y="${PAD_T + PLOT_H - 5}" class="dg-tick" fill="var(--red-hi)">${m.label}</text>`).join('');
 
   return `
   <svg class="dg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Frequência ao longo do tempo">
@@ -261,10 +279,10 @@ export function penetrationChart(bands) {
     curve += `${i ? 'L' : 'M'}${fx(hz).toFixed(1)},${fy(loss(hz)).toFixed(1)}`;
   }
 
-  const ticks = [100, 300, 1000, 3000, 6000].map((hz) => `
+  const ticks = [100, 300, 1000, 3000, 6000].map((hz, i, all) => `
     <line x1="${fx(hz).toFixed(1)}" y1="${t}" x2="${fx(hz).toFixed(1)}" y2="${t + ph}"
           stroke="currentColor" opacity=".1"/>
-    <text x="${fx(hz).toFixed(1)}" y="${h - 12}" text-anchor="middle" class="dg-tick">${fmtHz(hz)}</text>`).join('');
+    <text x="${fx(hz).toFixed(1)}" y="${h - 12}" text-anchor="${edgeAnchor(i, all)}" class="dg-tick">${fmtHz(hz)}</text>`).join('');
 
   // Each tone's band as a shaded column, so it reads as "this tone lives
   // here" rather than as a floating line. The label gets a backing plate:
@@ -310,7 +328,8 @@ export function penetrationChart(bands) {
  * cabin within about 8 to 12 metres.
  */
 export function rangeChart() {
-  const w = 320, h = 128, l = 30, b = 26, t = 10, r = 10;
+  // Room on the left for "115 dB", which used to start outside the picture.
+  const w = 320, h = 128, l = 40, b = 26, t = 10, r = 10;
   const pw = w - l - r, ph = h - t - b;
   // Domain starts at 3 m, which is where siren output is actually rated
   // (the Q2B's 123 dB figure is "at 10 feet"). Starting at 1 m would put the
@@ -327,10 +346,10 @@ export function rangeChart() {
     curve += `${i ? 'L' : 'M'}${fx(m).toFixed(1)},${fy(db).toFixed(1)}`;
   }
 
-  const ticks = [3, 6, 12, 25, 50, 100].map((m) => `
+  const ticks = [3, 6, 12, 25, 50, 100].map((m, i, all) => `
     <line x1="${fx(m).toFixed(1)}" y1="${t}" x2="${fx(m).toFixed(1)}" y2="${t + ph}"
           stroke="currentColor" opacity=".1"/>
-    <text x="${fx(m).toFixed(1)}" y="${h - 12}" text-anchor="middle" class="dg-tick">${m} m</text>`).join('');
+    <text x="${fx(m).toFixed(1)}" y="${h - 12}" text-anchor="${edgeAnchor(i, all)}" class="dg-tick">${m} m</text>`).join('');
 
   return `
   <svg class="dg dg--wide" viewBox="0 0 ${w} ${h}" role="img"

@@ -1,19 +1,22 @@
 # SireFlex
 
-Um controlador de sirene, buzina e giroflex que roda no iPhone — sem App
-Store, sem Xcode, sem conta de desenvolvedor. Abre no Safari, vai para a tela
-de início e funciona offline.
+Um controlador de sirene e buzina leve e completo. Roda em qualquer
+dispositivo!
+
+No iPhone, sem App Store, sem Xcode, sem conta de desenvolvedor: abre no
+Safari, vai para a tela de início e funciona offline. No computador ou no
+tablet, abre no navegador e se ajusta à tela — e no computador o painel também
+se toca pelo teclado.
 
 O ponto de partida foi o faceplate do *Siren Remote Simulator* (Android), que
 não tem versão para iOS. O layout foi recriado; o áudio foi feito do zero.
 
 ![faceplate](docs/faceplate.png)
 
-## O nome e a marca
+## A marca
 
-**Sire**ne + giro**flex**. A marca é a varredura da própria sirene — a mesma
-forma que aparece nos botões de tom — cortada ao meio nas duas cores do
-giroflex. Um desenho que diz as duas metades do nome.
+A marca é a varredura da própria sirene — a mesma forma que aparece nos
+botões de tom — cortada ao meio nas duas cores do giroflex.
 
 Ela fica no meio do painel, entre as duas teclas redondas — onde vai o
 emblema do fabricante numa central de sirene de verdade — com o número do
@@ -44,7 +47,8 @@ mude a taxa de varredura de um tom e o desenho dele muda junto.
 Web Audio API no momento em que você aperta o botão. Isso significa:
 
 - carrega instantâneo e ocupa alguns kilobytes
-- sustenta um tom por horas sem emenda audível, porque não há loop para emendar
+- sustenta um tom por horas sem emenda audível — cada laço é calculado para
+  fechar exatamente sobre si mesmo (veja *Emendas de laço*, abaixo)
 - o air horn responde no toque, sem latência de decodificação
 - funciona offline depois de instalado
 
@@ -100,19 +104,47 @@ botão **Verificar**, para o caso de você querer a resposta agora.
 | **AIR HORN** | Momentâneo — só soa enquanto o dedo está em cima. |
 | **MANUAL** | Momentâneo, na tecla grande. Segure para subir o tom; solte e ele desce sozinho. Sobe em 1,2 s e cai em 2,1 s — o canal manual existe para o tom responder ao polegar. |
 | **Q-SIREN** | A eletromecânica: sobe em ~2,6 s e desce em roda-livre por ~30 s. Trocar de tom corta a descida — quem manda é o botão que você acabou de apertar. |
-| **RUMBLER** | Acrescenta a camada grave por baixo do que estiver tocando. |
+| **RUMBLER** | Acrescenta a camada grave que acompanha a sirene tocando, duas oitavas abaixo. Sob o MANUAL ela sobe com o polegar e cai junto quando você solta; sob a Q-SIREN ela acelera e desce em roda-livre com o rotor. |
 | **HIGH / BASS** | Equalização. HIGH corta e alcança longe; BASS dá corpo. Podem ser combinados. |
-| **MOD** | Altera a velocidade de varredura do tom ativo: SLOW / STD / FAST. |
-| **MIX** | Empilha tons em vez de trocá-los. |
-| **AUTO** | Varre wail → yelp → phaser sozinho. |
+| **MOD** | Altera a velocidade da varredura: STD → FAST → SLOW. A varredura continua do ponto em que estava — muda o ritmo, não recomeça. |
+| **MIX** | Empilha tons em vez de trocá-los (WAIL e YELP juntos, por exemplo). AIR HORN e MANUAL tocam por cima sempre, com ou sem MIX. |
+| **AUTO** | Alterna WAIL-1 → YELP → PHSR sozinho, no intervalo escolhido em Ajustes. |
 | **LED** | Giroflex vermelho/azul piscando **atrás** do controle — os botões continuam funcionando. Vem desligado e só acende aqui: nenhuma sirene liga a luz sozinha. |
 | **LUZ** | Luz branca em tela cheia (serve de lanterna). Toque para sair. |
 | **STOP** | Corta tudo na hora. |
 | Qualquer tecla | Responde com um *clack*. Ele sai por fora das sirenes, então o STOP não engole o próprio clique; dá para desligar em Ajustes. |
 | **Barra inferior** | Volume, liga/desliga, guia e ajustes. Ficavam moldados nas bordas da caixa, como na unidade original — três milímetros de vidro sem rótulo, segurando a única porta para o guia. Controle em que não se acerta não é controle. |
 
-Tudo também funciona por teclado: Tab para navegar, Enter ou Espaço para
-acionar. Nos botões momentâneos o som dura enquanto a tecla fica pressionada.
+### No computador
+
+Cada botão tem uma tecla, e passar o mouse sobre ele mostra qual. A lista
+também aparece no guia, na aba **Botões** — só no computador; no celular ela
+não tem o que fazer.
+
+| Tecla | Botão | Tecla | Botão |
+|---|---|---|---|
+| `1` | WAIL-1 | `A` | AUTO |
+| `2` | WAIL-2 | `R` | RUMBLER |
+| `3` | YELP | `X` | MIX |
+| `4` | HI-LO | `V` | MOD |
+| `5` | PHSR | `H` | HIGH |
+| `6` | WA.WA | `G` | BASS |
+| `7` | Q-SIREN | `L` | LED |
+| `M` (segure) | MANUAL | `Z` | LUZ |
+| `B` (segure) | AIR HORN | `Espaço` | STOP |
+| `↑` `↓` | Volume | `Esc` | Fecha o guia e apaga as luzes |
+
+Cada atalho passa pelo mesmo caminho do dedo na tecla — acende, faz o clique e
+se comporta igual; MANUAL e AIR HORN soam enquanto a tecla fica apertada. Com
+o guia aberto os atalhos se calam, e Tab, Enter e Espaço continuam navegando e
+acionando o que tiver foco, como em qualquer página.
+
+### Em qualquer tela
+
+O painel se dimensiona pela largura ou pela altura que sobrar depois da barra
+inferior, o que acabar primeiro — do iPhone SE a um monitor. O guia vira uma
+coluna de leitura centralizada numa tela larga, com os gráficos no tamanho do
+texto em volta, e o aviso de boas-vindas vira uma janela no meio da tela.
 
 ## Como o som é feito
 
@@ -179,6 +211,37 @@ três filtrava a fundamental da própria trombeta.
 E nada é ouvido seco. Reflexões curtas de rua fazem mais pela credibilidade do
 que qualquer ajuste de espectro, porque tom perfeitamente seco é a única coisa
 que um som real nunca é.
+
+### Ajuste fino
+
+Uma rodada de medição pela cadeia real, tom a tom, achou o que o ouvido
+atento acharia antes de nós:
+
+- **MOD recomeçava a varredura.** O buffer novo partia do começo — o grave da
+  varredura —, então cada toque em MOD derrubava um wail de onde estivesse
+  para 725 Hz, com o buffer antigo ainda soando por cima por 50 ms (o pico
+  subia 28%). Agora o novo entra no mesmo ponto da varredura, num cruzamento
+  de 40 ms de potência constante.
+- **O tremolo do WA.WA e do PHSR saía de sincronia com MOD.** A pulsação é
+  travada na varredura, mas MOD mudava só a varredura; em SLOW e FAST as
+  duas escorregavam uma contra a outra. Agora as duas mudam juntas.
+- **O PHSR entrava 3 dB mais baixo que o wail que ele interrompe**, e o WA.WA
+  2 dB — o canal de prioridade chegava mais fraco. Nivelados pela cadeia
+  inteira, com e sem a simulação do alto-falante de celular.
+- **O MANUAL tinha aliasing no topo.** Tocar o mesmo buffer 2,9× mais rápido
+  empurra harmônicos para além de Nyquist, e eles voltam como assobios que
+  descem enquanto a sirene sobe (−29 dB). O buffer agora só leva os
+  harmônicos que continuam abaixo de Nyquist no topo do curso; embaixo, onde
+  o timbre foi aprovado, a diferença medida é de −46 dB.
+- **O RUMBLER não acompanhava MANUAL nem Q-SIREN.** Varria sozinho no ritmo
+  do wail e cortava seco quando o MANUAL era solto, com a nota ainda caindo.
+  Agora a camada recebe a mesma automação de altura desses dois tons, duas
+  oitavas abaixo: sobe, cai, acelera e desce junto. O caminho de altura do
+  MANUAL e da Q-SIREN não foi tocado — os dois saem **idênticos amostra por
+  amostra** ao que eram antes.
+
+Emendas de laço, cliques de início e fim, nível contínuo (DC) e a soltura da
+buzina foram medidos e estavam limpos.
 
 ### Emendas de laço
 
@@ -275,9 +338,19 @@ real. A primeira versão deste arquivo servia sem cabeçalho nenhum, passava aqu
 e reprovava no CI — onde os tempos calharam de cair dentro da janela em que o
 navegador se acha no direito de reaproveitar a cópia. O CI estava certo.
 
+Na última rodada, cada correção entrou com o teste que a prova — e cada um
+desses testes foi rodado contra o código antigo e falhou lá (46 falhas), antes
+de passar no novo: MOD que recomeçava a varredura, o tremolo fora de
+sincronia, o RUMBLER surdo ao MANUAL, a tecla que acordava o aparelho do
+standby deixando o painel apagado, o Espaço que disparava STOP dentro do guia,
+o botão "Parar" que ficava aceso depois da buzina acabar, o intervalo do AUTO
+que só valia na próxima vez, os atalhos de teclado, e o layout em cinco
+tamanhos de tela — painel usando o espaço, guia em coluna, rótulos de gráfico
+dentro do gráfico.
+
 ```
-67/67 checks passed      (áudio)
-134/134 UI checks passed (navegador)
+76/76 checks passed      (áudio)
+206/206 UI checks passed (navegador)
 7/7 update checks passed (publicação)
 ```
 

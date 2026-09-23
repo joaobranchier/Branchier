@@ -24,6 +24,15 @@
   --page:         #000;
   --safe-t:       env(safe-area-inset-top, 0px);
   --safe-b:       env(safe-area-inset-bottom, 0px);
+  /* Height of everything on the page that is not the faceplate: the hint,
+     the dock, the gaps between them and the page's own padding. */
+  --chrome:       calc(104px + var(--safe-t) + var(--safe-b));
+  /* The visible height. dvh follows Safari's toolbars as they come and go;
+     where it is not known, vh is the closest thing. */
+  --vh:           100vh;
+}
+@supports (height: 100dvh) {
+  :root { --vh: 100dvh; }
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -93,16 +102,18 @@ body {
   display: flex;
   gap: 6px;
   width: 100%;
-  max-width: 470px;
+  max-width: 560px;
   padding: 0 4px;
 }
 
 /* A hairline above the row, so the dock reads as one piece of hardware
-   under the unit rather than as five loose buttons on a black field. */
+   under the unit rather than as five loose buttons on a black field. Set
+   into the gap above the row rather than at its top edge, where it ran
+   straight through the descenders of the hint line. */
 .dock::before {
   content: "";
   position: absolute;
-  left: 4px; right: 4px; top: -11px;
+  left: 4px; right: 4px; top: -6px;
   border-top: 1px solid #1e2427;
 }
 
@@ -185,8 +196,14 @@ body {
 /* ------------------------------ shell ------------------------------ */
 
 .remote {
-  /* The single scaling knob. Everything else follows from it. */
-  font-size: clamp(5.4px, min(2.28vw, 0.93vh), 15px);
+  /* The single scaling knob. Everything else follows from it.
+
+     The faceplate is 42em wide and 70.5em tall, so it is sized by whichever
+     runs out first: the width, or the height left over once the dock and the
+     hint have had theirs. The height used to be a flat 0.93vh — a guess that
+     left a third of every screen unused, so the panel came out small on a
+     laptop and on any phone with a tall display. */
+  font-size: clamp(5.4px, min(2.28vw, calc((var(--vh) - var(--chrome)) / 70.5)), 15px);
   position: relative;
   width: 42em;
   padding: 1.6em 1.5em 1.5em;
@@ -480,6 +497,10 @@ body {
   animation: rise .26s cubic-bezier(.2,.8,.3,1);
 }
 @keyframes rise { from { transform: translateY(14%); opacity: .4; } }
+@keyframes pop  { from { transform: translateY(12px) scale(.98); opacity: 0; } }
+@media (min-width: 640px) and (min-height: 540px) {
+  .sheet__panel { animation-name: pop; }
+}
 @media (prefers-reduced-motion: reduce) { .sheet__panel { animation: none; } }
 
 .sheet__grip { padding: 12px 0 6px; flex: none; }
@@ -513,7 +534,7 @@ body {
 
 .field { display: flex; align-items: center; gap: 12px; margin: 14px 0; }
 .field label { flex: 1; font-size: 14.5px; color: #dbe3e7; }
-.field input[type=range] { flex: 1.2; accent-color: var(--amber); }
+.field input[type=range] { flex: 1.2; accent-color: var(--amber); max-width: 380px; }
 .field output { width: 3.4em; text-align: right; font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--amber); }
 
 .switchrow {
@@ -553,7 +574,8 @@ body {
 /* ------------------------------ donation ------------------------------ */
 
 .pix {
-  margin: 12px 0 4px;
+  max-width: 440px;
+  margin: 12px auto 4px;
   padding: 15px 14px 14px;
   border: 1px solid #27353a;
   border-radius: 14px;
@@ -596,6 +618,22 @@ body {
   body { overflow-y: auto; justify-content: flex-start; }
 }
 
+/* A tablet or a computer: the first-run notice is a dialog in the middle of
+   the screen rather than a sheet the width of a monitor. */
+@media (min-width: 640px) and (min-height: 540px) {
+  .sheet { align-items: center; justify-content: center; padding: 24px; }
+  .sheet__panel {
+    max-width: 560px;
+    max-height: min(88vh, 860px);
+    border: 1px solid #2c3236;
+    border-radius: 20px;
+    box-shadow: 0 30px 80px rgba(0,0,0,.75);
+  }
+  .sheet__grip { padding: 8px 0 0; }
+  .sheet__grip::before { display: none; }
+  .sheet__body { padding: 8px 28px 26px; }
+}
+
 /* ====================================================================
    Guide
    ==================================================================== */
@@ -605,11 +643,17 @@ body {
   display: flex; flex-direction: column;
   background: #0b0d0f;
   padding-top: var(--safe-t);
+  /* One reading column, centred. On a phone it is the screen; on a monitor
+     it stops at a comfortable line length instead of spreading every page
+     across two thousand pixels, which is what read as "zoomed in". */
+  --col: 760px;
+  --gutter: max(18px, calc((100% - var(--col)) / 2));
 }
+.guide:focus { outline: none; }
 
 .guide__bar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 18px 10px;
+  padding: 14px var(--gutter) 10px;
   border-bottom: 1px solid #1d2225;
   flex: none;
 }
@@ -622,7 +666,7 @@ body {
 
 .guide__tabs {
   display: flex; gap: 5px; flex: none;
-  padding: 10px 12px;
+  padding: 10px max(12px, calc((100% - var(--col)) / 2));
   overflow-x: auto; -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   border-bottom: 1px solid #1d2225;
@@ -643,9 +687,20 @@ body {
   flex: 1; min-height: 0;
   overflow-y: auto; -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  padding: 16px 18px calc(var(--safe-b) + 40px);
+  padding: 16px var(--gutter) calc(var(--safe-b) + 40px);
   -webkit-user-select: text; user-select: text;
 }
+
+/* A little more room for the eye where there is room to give. */
+@media (min-width: 760px) {
+  .guide__body .gintro, .guide__body .gcard__body, .guide__body .gkeys dd { font-size: 15px; }
+  .guide__tabs button { padding: 9px 13px; font-size: 13.5px; }
+}
+.guide__tabs button:focus-visible,
+.guide__close:focus-visible,
+.gplay:focus-visible,
+.toggle:focus-visible,
+.btn:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
 /* Stops the faceplate scrolling underneath an open guide on iOS. */
 body.is-locked { overflow: hidden; }
@@ -713,6 +768,7 @@ body.is-locked { overflow: hidden; }
   font-size: 11.5px; color: var(--amber);
   margin: 6px 0 10px; letter-spacing: .01em;
 }
+.gcard__spec span { white-space: nowrap; }   /* wraps between the parts, never inside one */
 .gcard__body { font-size: 14px; line-height: 1.62; color: #c2cbd0; margin: 0 0 8px; }
 .gcard__note { text-transform: none; letter-spacing: 0; color: #66757c; font-weight: 400; }
 
@@ -737,11 +793,15 @@ body.is-locked { overflow: hidden; }
 
 .dg {
   display: block; width: 100%; height: auto;
-  margin: 4px 0 6px;
+  /* Drawn in a 320-unit box, so the type inside scales with the width. Held
+     to a size where the labels read like the text around them — full width
+     on a monitor they came out at fifty pixels. */
+  max-width: 460px;
+  margin: 4px auto 6px;
   color: #9aa7ad;
   overflow: visible;
 }
-.dg--bars { max-width: 320px; }
+.dg--bars { max-width: 340px; }
 .dg-tick  { font: 9.5px ui-monospace, Menlo, monospace; fill: #7d8b92; }
 .dg-axis  { font: 9.5px ui-sans-serif, system-ui, sans-serif; fill: #66757c; }
 .dg-label { font: 600 11px ui-sans-serif, system-ui, sans-serif; fill: #c2cbd0; }
@@ -758,6 +818,26 @@ body.is-locked { overflow: hidden; }
 }
 .gkeys dd b { color: #c2cbd0; }
 
+/* The keyboard table: two columns, the key and what it presses. */
+.gshort {
+  display: grid; grid-template-columns: max-content 1fr;
+  gap: 7px 14px; align-items: center;
+  margin: 0 0 4px;
+}
+.gshort dt { margin: 0; white-space: nowrap; }
+.gshort dd { margin: 0; font-size: 13.5px; color: #9aa7ad; }
+@media (min-width: 600px) {
+  .gshort { grid-template-columns: max-content 1fr max-content 1fr; column-gap: 14px; }
+}
+kbd {
+  display: inline-block; min-width: 1.9em;
+  padding: 3px 7px; border-radius: 6px;
+  border: 1px solid #2f363b; border-bottom-width: 2px;
+  background: #1a1f22; color: #dbe3e7;
+  font: 600 12px/1.2 ui-monospace, Menlo, monospace;
+  text-align: center;
+}
+
 /* ---- form controls inside the guide ---- */
 
 .guide .field select,
@@ -766,7 +846,7 @@ body.is-locked { overflow: hidden; }
   background: #22282c; color: #dbe3e7;
   border: 1px solid #2f363b; font-size: 14px;
 }
-.guide .field select { flex: 1.2; }
+.guide .field select { flex: 1.2; max-width: 380px; }
 .guide .sel--inline { flex: none; }
 
 /* ====================================================================

@@ -105,7 +105,10 @@ export const TONES = {
      */
     override: true,
     icon: { cycles: 12, shape: 'tri',  amp: 0.90 },
-    gain: 0.74,
+    // Level-matched to the wail it goes over, measured through the whole
+    // chain. At 0.74 the priority channel came in 3 dB under the tone it
+    // interrupts: the button you press to cut through arrived quieter.
+    gain: 1.0,
   },
 
   hilo: {
@@ -139,7 +142,9 @@ export const TONES = {
     detune: 6,
     gate: { rateHz: cpmToHz(132), depth: 0.85 },
     icon: { cycles: 5,  shape: 'tri',  amp: 0.62 },
-    gain: 0.82,
+    // The deep tremolo takes 2 dB off its average level; this puts it back
+    // level with the other sirens instead of sounding like the quiet one.
+    gain: 1.0,
   },
 
   airhorn: {
